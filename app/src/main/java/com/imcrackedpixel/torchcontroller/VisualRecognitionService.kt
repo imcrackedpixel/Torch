@@ -203,8 +203,8 @@ class VisualRecognitionService : Service() {
             val objects = if (objectTask.isSuccessful) objectTask.result else emptyList()
             val torchSignals = analyseTorchlight(bitmap, ocrLines.map { it.text })
             observeGeneralGameplay(text)
-            updateHighlights(ocrLines, bitmap.width, bitmap.height)
             val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text })
+            updateHighlights(ocrLines, bitmap.width, bitmap.height, teachCandidate)
             if (teachCandidate != null) askTeachQuestion(teachCandidate.first, teachCandidate.second)
             // Keep detailed OCR/object data internal; never dump raw screen text into the app UI.
             sendStatus("Watching screen · learning locally")
@@ -321,15 +321,50 @@ class VisualRecognitionService : Service() {
     }
 
 
-    // Transparent, non-touchable rectangles mark the OCR text currently being read.
-    private fun updateHighlights(lines: List<Text.Line>, sourceWidth: Int, sourceHeight: Int) {
+    // Highlight only the specific OCR line or screen region that triggered the current question.
+    // Clear all highlights when there is no active teaching candidate.
+    private fun updateHighlights(
+        lines: List<Text.Line>, sourceWidth: Int, sourceHeight: Int,
+        candidate: Pair<String, String>?
+    ) {
         val screen = Point()
         @Suppress("DEPRECATION")
         (getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay.getRealSize(screen)
-        val boxes = lines.mapNotNull { line ->
-            val bounds = line.boundingBox ?: return@mapNotNull null
-            Rect(bounds)
-        }.take(10)
+
+        val targetBoxes = mutableListOf<Rect>()
+        if (candidate != null) {
+            val key = candidate.first
+            val matched = when (key) {
+                "loot" -> lines.filter { line ->
+                    val t = line.text.lowercase()
+                    listOf("bud rod", "rogue outerwear", "herbalist's footguards", "tortoiseshell amulet")
+                        .any { t.contains(it) }
+                }
+                "enemy" -> lines.filter { line ->
+                    val t = line.text.lowercase()
+                    listOf("agito vanguard", "lean the chosen").any { t.contains(it) }
+                }
+                else -> emptyList()
+            }
+            matched.mapNotNullTo(targetBoxes) { it.boundingBox?.let(::Rect) }
+
+            // When the cue is visual rather than readable text, mark only its relevant HUD/play area.
+            if (targetBoxes.isEmpty()) {
+                val region = when (key) {
+                    "enemy" -> Rect(
+                        (sourceWidth * 0.22f).toInt(), (sourceHeight * 0.12f).toInt(),
+                        (sourceWidth * 0.78f).toInt(), (sourceHeight * 0.78f).toInt()
+                    )
+                    "skill" -> Rect(
+                        (sourceWidth * 0.76f).toInt(), (sourceHeight * 0.55f).toInt(),
+                        (sourceWidth * 0.98f).toInt(), (sourceHeight * 0.86f).toInt()
+                    )
+                    else -> null
+                }
+                if (region != null) targetBoxes += region
+            }
+        }
+
         mainHandler.post {
             if (!Settings.canDrawOverlays(this)) return@post
             try {
@@ -350,7 +385,7 @@ class VisualRecognitionService : Service() {
                     wm.addView(view, params)
                     highlightOverlay = view
                 }
-                view?.setBoxes(boxes, sourceWidth, sourceHeight, screen.x, screen.y)
+                view?.setBoxes(targetBoxes, sourceWidth, sourceHeight, screen.x, screen.y)
             } catch (_: Exception) { }
         }
     }
