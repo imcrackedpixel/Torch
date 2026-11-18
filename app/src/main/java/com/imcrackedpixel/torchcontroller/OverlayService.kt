@@ -29,6 +29,29 @@ class OverlayService : Service() {
     private var recording = false
     private var replaying = false
     private var experimenting = false
+    private var aiPlaying = false
+    private var aiPlayIndex = 0
+    private var aiPlayStartedAt = 0L
+    private val aiPlayLoop = object : Runnable {
+        override fun run() {
+            if (!aiPlaying) return
+            if (System.currentTimeMillis() - aiPlayStartedAt >= 60000L) { stopAiPlay("AI play finished its 60-second test"); return }
+            val state = getSharedPreferences("live_teaching", MODE_PRIVATE).getString("last_state", "") ?: ""
+            if (!state.contains("POSSIBLE COMBAT", true)) {
+                status?.text = "AI paused: waiting for possible combat"
+                handler.postDelayed(this, 1500L); return
+            }
+            val available = (0..3).filter { enabled[it] }
+            if (available.isEmpty()) { stopAiPlay("AI stopped: enable at least one T button"); return }
+            val index = available[aiPlayIndex % available.size]; aiPlayIndex++
+            val b = taps[index]; val p = params[index]; val svc = TouchService.instance
+            if (b == null || p == null || svc == null) { stopAiPlay("AI stopped: controller or Accessibility unavailable"); return }
+            val x = p.x + b.width / 2f; val y = p.y + b.height / 2f
+            svc.tapAt(x, y); recordAction(index, x, y)
+            status?.text = "AI PLAY · tried T" + (index + 1) + " · 60-second test"
+            handler.postDelayed(this, 3000L)
+        }
+    }
     private var experimentIndex = 0
     private var experimentStartedAt = 0L
     private val replayTasks = mutableListOf<Runnable>()
@@ -150,6 +173,14 @@ class OverlayService : Service() {
             }
         })
         panel.addView(Button(this).apply {
+            text = "AI PLAY (SUPERVISED 60 SEC)"
+            setOnClickListener { startAiPlay() }
+        })
+        panel.addView(Button(this).apply {
+            text = "STOP AI PLAY"
+            setOnClickListener { stopAiPlay("AI play stopped by you") }
+        })
+        panel.addView(Button(this).apply {
             text = "START EXPERIMENT (60 SEC)"
             setOnClickListener { startExperiment() }
         })
@@ -186,6 +217,22 @@ class OverlayService : Service() {
         val panelParams=WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply { gravity=Gravity.TOP or Gravity.RIGHT; x=(8*density).roundToInt(); y=(48*density).roundToInt() }
         wm.addView(panel,panelParams)
     }
+    private fun startAiPlay() {
+        if (aiPlaying) { status?.text = "AI play is already running"; return }
+        if (TouchService.instance == null) { status?.text = "Enable Accessibility before AI play"; return }
+        if ((0..3).none { enabled[it] }) { status?.text = "Turn ON the skill buttons you want AI to try first"; return }
+        stopAutomation("Pausing other automation for AI play")
+        aiPlaying = true; aiPlayIndex = 0; aiPlayStartedAt = System.currentTimeMillis()
+        status?.text = "AI PLAY ready · waiting for possible combat · 60-second limit"
+        handler.post(aiPlayLoop)
+    }
+
+    private fun stopAiPlay(message: String) {
+        aiPlaying = false
+        handler.removeCallbacks(aiPlayLoop)
+        status?.text = message
+    }
+
     private fun startExperiment() {
         if (experimenting) {
             status?.text = "Experiment is already running"
@@ -308,7 +355,7 @@ class OverlayService : Service() {
     }
 
     private fun updateStatus(){ status?.text=if(running) "Running · "+enabled.count{it}+" active · STOP ALL" else "Tap bubbles to enable · drag to move" }
-    private fun stopAutomation(message:String){running=false;for(i in 0..3)handler.removeCallbacks(loops[i]);handler.removeCallbacks(safetyStop);stopReplay();stopExperiment(message);status?.text=message}
+    private fun stopAutomation(message:String){stopAiPlay(message);running=false;for(i in 0..3)handler.removeCallbacks(loops[i]);handler.removeCallbacks(safetyStop);stopReplay();stopExperiment(message);status?.text=message}
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int)=START_STICKY
     override fun onDestroy(){recording=false;stopAutomation("Controller closed");for(b in taps)if(b?.isAttachedToWindow==true)wm.removeView(b);if(::panel.isInitialized&&panel.isAttachedToWindow)wm.removeView(panel);super.onDestroy()}
     override fun onBind(intent:Intent?):IBinder?=null
