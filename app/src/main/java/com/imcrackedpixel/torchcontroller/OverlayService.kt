@@ -16,6 +16,8 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.roundToInt
 
 class OverlayService : Service() {
@@ -23,6 +25,10 @@ class OverlayService : Service() {
     private lateinit var panel: LinearLayout
     private val handler = Handler(Looper.getMainLooper())
     private var running = false
+    private var recording = false
+    private var replaying = false
+    private val replayTasks = mutableListOf<Runnable>()
+    private val memoryPrefs by lazy { getSharedPreferences("game_action_memory", MODE_PRIVATE) }
     private var status: TextView? = null
     private val taps = arrayOfNulls<Button>(4)
     private val params = arrayOfNulls<WindowManager.LayoutParams>(4)
@@ -38,7 +44,10 @@ class OverlayService : Service() {
             val p=params[index] ?: return
             val svc=TouchService.instance
             if(svc==null){ stopAutomation("Accessibility disconnected"); return }
-            svc.tapAt(p.x+b.width/2f,p.y+b.height/2f)
+            val tapX = p.x + b.width / 2f
+            val tapY = p.y + b.height / 2f
+            svc.tapAt(tapX, tapY)
+            recordAction(index, tapX, tapY)
             handler.postDelayed(this,cooldowns[index])
         }
     }}
@@ -86,6 +95,27 @@ class OverlayService : Service() {
         panel=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(8,8,8,8); setBackgroundColor(0xDD20252B.toInt()) }
         status=TextView(this).apply { text="Tap bubbles to enable · drag to move"; setTextColor(Color.WHITE); textSize=12f }
         panel.addView(status)
+        panel.addView(Button(this).apply {
+            text = "START ACTION RECORDING"
+            setOnClickListener {
+                recording = !recording
+                if (recording) memoryPrefs.edit().putString("events", "[]").apply()
+                text = if (recording) "STOP RECORDING" else "START ACTION RECORDING"
+                status?.text = if (recording) "Recording controller taps with screen context" else "Recording saved on this phone"
+            }
+        })
+        panel.addView(Button(this).apply {
+            text = "REPLAY LAST RECORDING"
+            setOnClickListener { replayLastRecording() }
+        })
+        panel.addView(Button(this).apply {
+            text = "CLEAR ACTION MEMORY"
+            setOnClickListener {
+                stopReplay()
+                memoryPrefs.edit().remove("events").apply()
+                status?.text = "Action memory cleared"
+            }
+        })
         for(i in 0..3) panel.addView(Button(this).apply {
             text="T"+(i+1)+" cooldown: "+cooldowns[i]+"ms"
             setOnClickListener {
@@ -103,9 +133,70 @@ class OverlayService : Service() {
         val panelParams=WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply { gravity=Gravity.TOP or Gravity.RIGHT; x=(8*density).roundToInt(); y=(48*density).roundToInt() }
         wm.addView(panel,panelParams)
     }
+    private fun recordAction(index: Int, x: Float, y: Float) {
+        if (!recording) return
+        try {
+            val events = JSONArray(memoryPrefs.getString("events", "[]") ?: "[]")
+            val context = getSharedPreferences("live_teaching", MODE_PRIVATE)
+                .getString("last_observation", "") ?: ""
+            events.put(JSONObject().apply {
+                put("time", System.currentTimeMillis())
+                put("button", index + 1)
+                put("x", x.toDouble())
+                put("y", y.toDouble())
+                put("context", context.take(160))
+            })
+            while (events.length() > 120) events.remove(0)
+            memoryPrefs.edit().putString("events", events.toString()).apply()
+        } catch (_: Exception) { }
+    }
+
+    private fun replayLastRecording() {
+        if (replaying) {
+            stopReplay()
+            status?.text = "Replay stopped"
+            return
+        }
+        if (TouchService.instance == null) {
+            status?.text = "Enable Accessibility before replay"
+            return
+        }
+        val events = try { JSONArray(memoryPrefs.getString("events", "[]") ?: "[]") }
+            catch (_: Exception) { JSONArray() }
+        if (events.length() < 2) {
+            status?.text = "Record at least two controller taps first"
+            return
+        }
+        stopAutomation("Automation paused for replay")
+        val startTime = events.optJSONObject(0)?.optLong("time") ?: 0L
+        replaying = true
+        status?.text = "Replaying " + events.length() + " recorded taps · tap STOP ALL to cancel"
+        for (i in 0 until events.length()) {
+            val event = events.optJSONObject(i) ?: continue
+            val offset = (event.optLong("time") - startTime).coerceIn(0L, 45000L)
+            val x = event.optDouble("x").toFloat()
+            val y = event.optDouble("y").toFloat()
+            val task = Runnable {
+                if (replaying) TouchService.instance?.tapAt(x, y)
+                if (i == events.length() - 1) {
+                    replaying = false
+                    status?.text = "Replay finished"
+                }
+            }
+            replayTasks += task
+            handler.postDelayed(task, offset)
+        }
+    }
+
+    private fun stopReplay() {
+        replayTasks.forEach { handler.removeCallbacks(it) }
+        replayTasks.clear()
+        replaying = false
+    }
+
     private fun updateStatus(){ status?.text=if(running) "Running · "+enabled.count{it}+" active · STOP ALL" else "Tap bubbles to enable · drag to move" }
-    private fun stopAutomation(message:String){running=false;for(i in 0..3)handler.removeCallbacks(loops[i]);handler.removeCallbacks(safetyStop);status?.text=message}
+    private fun stopAutomation(message:String){running=false;for(i in 0..3)handler.removeCallbacks(loops[i]);handler.removeCallbacks(safetyStop);stopReplay();status?.text=message}
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int)=START_STICKY
-    override fun onDestroy(){stopAutomation("Controller closed");for(b in taps)if(b?.isAttachedToWindow==true)wm.removeView(b);if(::panel.isInitialized&&panel.isAttachedToWindow)wm.removeView(panel);super.onDestroy()}
+    override fun onDestroy(){recording=false;stopAutomation("Controller closed");for(b in taps)if(b?.isAttachedToWindow==true)wm.removeView(b);if(::panel.isInitialized&&panel.isAttachedToWindow)wm.removeView(panel);super.onDestroy()}
     override fun onBind(intent:Intent?):IBinder?=null
 }
