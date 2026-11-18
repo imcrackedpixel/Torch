@@ -8,28 +8,18 @@ import android.view.accessibility.AccessibilityEvent
 class TouchService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
     override fun onInterrupt() {}
+    override fun onServiceConnected() { instance=this }
+    override fun onDestroy() { if (instance===this) instance=null; super.onDestroy() }
 
-    override fun onServiceConnected() {
-        instance = this
+    fun joystickDrag(x: Float, y: Float, dx: Float, dy: Float, holdMs: Long=1200L) {
+        val endX=x+dx
+        val endY=y+dy
+        val approach=Path().apply { moveTo(x,y); lineTo(endX,endY) }
+        val first=GestureDescription.StrokeDescription(approach,0,220,true)
+        val hold=Path().apply { moveTo(endX,endY); lineTo(endX,endY) }
+        val continued=first.continueStroke(hold,220,holdMs,false)
+        val gesture=GestureDescription.Builder().addStroke(first).addStroke(continued).build()
+        dispatchGesture(gesture,null,null)
     }
-
-    override fun onDestroy() {
-        if (instance === this) instance = null
-        super.onDestroy()
-    }
-
-    fun joystickDrag(startX: Float, startY: Float, dx: Float, dy: Float, totalMs: Long = 1800L) {
-        val path = Path().apply {
-            moveTo(startX, startY)
-            lineTo(startX + dx, startY + dy)
-            lineTo(startX + dx, startY + dy)
-        }
-        val moveMs = 220L
-        val stroke = GestureDescription.StrokeDescription(path, 0, totalMs)
-        dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
-    }
-
-    companion object {
-        @Volatile var instance: TouchService? = null
-    }
+    companion object { @Volatile var instance: TouchService?=null }
 }
