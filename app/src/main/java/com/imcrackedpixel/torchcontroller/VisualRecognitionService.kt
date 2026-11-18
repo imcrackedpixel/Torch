@@ -281,6 +281,9 @@ class VisualRecognitionService : Service() {
         val lootNames = listOf("bud rod", "rogue outerwear", "herbalist's footguards", "tortoiseshell amulet")
         val foundLoot = lootNames.filter { joined.contains(it) }
         if (foundLoot.isNotEmpty()) return "loot" to "I can read item names (${foundLoot.joinToString(", ")}). Are these dropped loot items?"
+        if (joined.contains("congrats, you obtained") || joined.contains("you obtained")) {
+            return "loot" to "A reward notification appeared. Is this a loot pickup?"
+        }
         val enemyNames = listOf("agito vanguard", "lean the chosen")
         val foundEnemies = enemyNames.filter { joined.contains(it) }
         if (foundEnemies.isNotEmpty()) return "enemy" to "I can read ${foundEnemies.joinToString(", ")} during combat. Is this an enemy?"
@@ -337,7 +340,8 @@ class VisualRecognitionService : Service() {
             val matched = when (key) {
                 "loot" -> lines.filter { line ->
                     val t = line.text.lowercase()
-                    listOf("bud rod", "rogue outerwear", "herbalist's footguards", "tortoiseshell amulet")
+                    listOf("bud rod", "rogue outerwear", "herbalist's footguards",
+                        "tortoiseshell amulet", "congrats, you obtained", "you obtained")
                         .any { t.contains(it) }
                 }
                 "enemy" -> lines.filter { line ->
@@ -346,23 +350,9 @@ class VisualRecognitionService : Service() {
                 }
                 else -> emptyList()
             }
+            // Never draw a guessed screen-sized rectangle. If we cannot locate the exact
+            // text cue, leave the screen clear rather than highlighting a large region.
             matched.mapNotNullTo(targetBoxes) { it.boundingBox?.let(::Rect) }
-
-            // When the cue is visual rather than readable text, mark only its relevant HUD/play area.
-            if (targetBoxes.isEmpty()) {
-                val region = when (key) {
-                    "enemy" -> Rect(
-                        (sourceWidth * 0.22f).toInt(), (sourceHeight * 0.12f).toInt(),
-                        (sourceWidth * 0.78f).toInt(), (sourceHeight * 0.78f).toInt()
-                    )
-                    "skill" -> Rect(
-                        (sourceWidth * 0.76f).toInt(), (sourceHeight * 0.55f).toInt(),
-                        (sourceWidth * 0.98f).toInt(), (sourceHeight * 0.86f).toInt()
-                    )
-                    else -> null
-                }
-                if (region != null) targetBoxes += region
-            }
         }
 
         mainHandler.post {
@@ -392,7 +382,7 @@ class VisualRecognitionService : Service() {
 
     private fun askTeachQuestion(key: String, question: String) {
         mainHandler.post {
-            if (learnedPrefs.contains(key) || askedThisSession.contains(key)) return@post
+            if (learnedPrefs.contains(key) || learnedPrefs.contains("learned_" + key) || askedThisSession.contains(key)) return@post
             askedThisSession.add(key)
             activeQuestionKey = key
             if (teachQuestion != null) {
@@ -484,9 +474,9 @@ class VisualRecognitionService : Service() {
             val before = lastScreenText
             // Keep OCR details in local notes, but never show a raw transcript in the gameplay panel.
             currentObservation = if (before.isBlank()) {
-                "First gameplay screen observed."
+                "First gameplay screen observed. Visible text: " + current.take(240)
             } else {
-                "Gameplay screen changed since the previous observation."
+                "Gameplay screen changed. Visible text: " + current.take(240)
             }
             saveGameplayNote("OBSERVATION: " + currentObservation)
             generalQuestionNumber += 1
@@ -526,7 +516,12 @@ class VisualRecognitionService : Service() {
         }
         val note = "PLAYER EXPLANATION: " + explanation + " | CONTEXT: " + currentObservation
         saveGameplayNote(note)
-        activeQuestionKey?.let { learnedPrefs.edit().putString("learned_" + it, note).apply() }
+        activeQuestionKey?.let { key ->
+            learnedPrefs.edit()
+                .putString("learned_" + key, note)
+                .putBoolean(key, true)
+                .apply()
+        }
         activeQuestionKey = null
         currentObservation = ""
         teachPanel?.visibility = android.view.View.GONE
