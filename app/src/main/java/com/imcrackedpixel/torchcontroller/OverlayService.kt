@@ -115,10 +115,10 @@ class OverlayService : Service() {
         panel.addView(status)
         panel.addView(Button(this).apply { text="AUTO"; setOnClickListener {
             if (TouchService.instance == null) { status?.text="Enable Accessibility first"; return@setOnClickListener }
-            if (!running) { running=true; step=0; status?.text="AUTO running · STOP to halt"; handler.post(loop) }
+            if (!running) { running=true; step=0; targetParams.flags = targetParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE; wm.updateViewLayout(target,targetParams); status?.text="AUTO running · STOP to halt"; handler.post(loop) }
         }})
         panel.addView(Button(this).apply { text="STOP"; setOnClickListener {
-            running=false; handler.removeCallbacks(loop); status?.text="Stopped"
+            running=false; handler.removeCallbacks(loop); targetParams.flags = targetParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv(); if (target.isAttachedToWindow) wm.updateViewLayout(target,targetParams); status?.text="Stopped"
         }})
         panel.addView(Button(this).apply { text="CLOSE"; setOnClickListener { stopSelf() }})
         panelParams = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
