@@ -129,12 +129,12 @@ class VisualRecognitionService : Service() {
         val textTask = recognizer.process(input)
         val objectTask = objectDetector.process(input)
         Tasks.whenAllComplete(textTask, objectTask).addOnCompleteListener {
-            val text = if (textTask.isSuccessful) textTask.result.textBlocks
+            val ocrLines = if (textTask.isSuccessful) textTask.result.textBlocks
                 .flatMap { block -> block.lines }
-                .map { line -> line.text.trim() }
-                .filter { line -> line.isNotEmpty() }
-                .take(12) else emptyList()
+                .filter { line -> line.text.trim().isNotEmpty() } else emptyList()
+            val text = ocrLines.map { it.text.trim() }.take(16)
             val objects = if (objectTask.isSuccessful) objectTask.result else emptyList()
+            val torchSignals = analyseTorchlight(bitmap, ocrLines.map { it.text })
             val objectLines = objects.take(8).mapIndexed { index, item ->
                 val label = item.labels.maxByOrNull { it.confidence }?.let {
                     "${it.text} ${(it.confidence * 100).toInt()}%"
@@ -146,14 +146,78 @@ class VisualRecognitionService : Service() {
                 append("Screen analysis\n")
                 append("Text: ")
                 append(if (text.isEmpty()) "none detected" else text.joinToString(" | "))
-                append("\nObjects: ")
-                append(if (objectLines.isEmpty()) "no general objects classified" else objectLines.joinToString("; "))
-                append("\nNote: generic object labels are not Torchlight-specific enemy or loot recognition.")
+                append("\nTorchlight cues: ")
+                append(torchSignals.joinToString(" | "))
+                append("\nGeneral objects: ")
+                append(if (objectLines.isEmpty()) "none classified" else objectLines.joinToString("; "))
+                append("\nExperimental visual cues; verify on live gameplay before enabling automation.")
             }
             sendStatus(report)
             bitmap.recycle()
             processing.set(false)
         }
+    }
+
+
+    /**
+     * First-pass Torchlight: Infinite HUD heuristics calibrated from the supplied
+     * 1536x864 screenshots. Uses OCR text and screen-region colour patterns only;
+     * it does not identify every monster or item and does not trigger taps.
+     */
+    private fun analyseTorchlight(bitmap: Bitmap, recognisedLines: List<String>): List<String> {
+        val cues = mutableListOf<String>()
+        val joined = recognisedLines.joinToString(" ").lowercase()
+        val lootNames = listOf("bud rod", "rogue outerwear", "herbalist's footguards", "tortoiseshell amulet")
+        val foundLoot = lootNames.filter { joined.contains(it) }
+        if (foundLoot.isNotEmpty()) cues += "Loot text detected: ${foundLoot.joinToString(", ")}"
+
+        val enemyNames = listOf("agito vanguard", "lean the chosen")
+        val foundEnemies = enemyNames.filter { joined.contains(it) }
+        val redBars = countColourRuns(bitmap, 0.22f, 0.78f, 0.12f, 0.78f) { r, g, b ->
+            r > 145 && r > g * 1.45 && r > b * 1.25 && g < 150
+        }
+        if (foundEnemies.isNotEmpty() || redBars >= 2) {
+            val detail = foundEnemies.joinToString(", ").ifEmpty { "red combat health-bar cues" }
+            cues += "Possible enemy/combat detected: $detail"
+        } else cues += "No clear enemy cue"
+
+        val goldRuns = countColourRuns(bitmap, 0.56f, 0.91f, 0.34f, 0.82f) { r, g, b ->
+            r > 155 && g > 85 && g < 205 && b < 105 && r > b * 1.7
+        }
+        if (goldRuns >= 2 && foundLoot.isNotEmpty()) cues += "Likely loot pickup prompt visible"
+        else if (foundLoot.isNotEmpty()) cues += "Loot labels visible; pickup prompt not confidently confirmed"
+        else cues += "No clear loot pickup cue"
+        return cues
+    }
+
+    private fun countColourRuns(
+        bitmap: Bitmap, left: Float, right: Float, top: Float, bottom: Float,
+        match: (Int, Int, Int) -> Boolean
+    ): Int {
+        val x0 = (bitmap.width * left).toInt().coerceIn(0, bitmap.width - 1)
+        val x1 = (bitmap.width * right).toInt().coerceIn(x0 + 1, bitmap.width)
+        val y0 = (bitmap.height * top).toInt().coerceIn(0, bitmap.height - 1)
+        val y1 = (bitmap.height * bottom).toInt().coerceIn(y0 + 1, bitmap.height)
+        val strideX = maxOf(1, bitmap.width / 480)
+        val strideY = maxOf(1, bitmap.height / 270)
+        var matchingRows = 0
+        var y = y0
+        while (y < y1) {
+            var run = 0
+            var longest = 0
+            var x = x0
+            while (x < x1) {
+                val pixel = bitmap.getPixel(x, y)
+                if (match(android.graphics.Color.red(pixel), android.graphics.Color.green(pixel), android.graphics.Color.blue(pixel))) {
+                    run++
+                    if (run > longest) longest = run
+                } else run = 0
+                x += strideX
+            }
+            if (longest >= maxOf(5, (x1 - x0) / 110)) matchingRows++
+            y += strideY
+        }
+        return matchingRows
     }
 
     private fun imageToBitmap(image: Image): Bitmap {
