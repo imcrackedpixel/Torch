@@ -25,3 +25,5 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
 
 # Rebuild on live-teaching revisions
+
+# Rebuild after compact live-screen status UI fix.
