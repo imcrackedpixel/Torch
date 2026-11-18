@@ -9,8 +9,8 @@ android {
         applicationId = "com.imcrackedpixel.torchcontroller"
         minSdk = 26
         targetSdk = 32
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -19,4 +19,7 @@ android {
 }
 kotlin {
     jvmToolchain(17)
+}
+dependencies {
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 }
