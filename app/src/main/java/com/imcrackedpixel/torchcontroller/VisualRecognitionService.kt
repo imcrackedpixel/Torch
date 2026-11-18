@@ -468,6 +468,8 @@ class VisualRecognitionService : Service() {
     private fun observeGeneralGameplay(lines: List<String>) {
         val current = lines.joinToString(" | ").take(900)
         if (current.isBlank()) return
+        // Keep the latest compact visual context available to the controller action recorder.
+        learnedPrefs.edit().putString("last_observation", current.take(240)).apply()
         val now = System.currentTimeMillis()
         val changed = current != lastScreenText
         if (changed && now - lastGeneralQuestionAt > 15000L) {
