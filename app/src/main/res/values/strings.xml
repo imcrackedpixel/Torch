@@ -1,4 +1,0 @@
-<resources>
-    <string name="app_name">Torch Controller</string>
-    <string name="accessibility_description">Allows the floating controller to send joystick gestures when you start them.</string>
-</resources>

@@ -251,7 +251,36 @@ class VisualRecognitionService : Service() {
             r > 145 && r > g * 1.45 && r > b * 1.25 && g < 150
         }
         if (redBars >= 2) return "enemy" to "I see red health-bar shapes in the play area. Do these indicate enemies?"
+        val purplePixels = countMatchingPixels(bitmap, 0.76f, 0.98f, 0.55f, 0.86f) { r, g, b ->
+            r > 75 && b > 125 && b > g * 1.25 && r > g * 1.15
+        }
+        if (purplePixels > 35) return "skill" to "I see a purple icon in the lower-right action area. Is this one of your skill buttons?"
         return null
+    }
+
+
+    private fun countMatchingPixels(
+        bitmap: Bitmap, left: Float, right: Float, top: Float, bottom: Float,
+        match: (Int, Int, Int) -> Boolean
+    ): Int {
+        val x0 = (bitmap.width * left).toInt().coerceIn(0, bitmap.width - 1)
+        val x1 = (bitmap.width * right).toInt().coerceIn(x0 + 1, bitmap.width)
+        val y0 = (bitmap.height * top).toInt().coerceIn(0, bitmap.height - 1)
+        val y1 = (bitmap.height * bottom).toInt().coerceIn(y0 + 1, bitmap.height)
+        val sx = maxOf(1, bitmap.width / 360)
+        val sy = maxOf(1, bitmap.height / 220)
+        var count = 0
+        var y = y0
+        while (y < y1) {
+            var x = x0
+            while (x < x1) {
+                val c = bitmap.getPixel(x, y)
+                if (match(Color.red(c), Color.green(c), Color.blue(c))) count++
+                x += sx
+            }
+            y += sy
+        }
+        return count
     }
 
     private fun askTeachQuestion(key: String, question: String) {
@@ -298,7 +327,7 @@ class VisualRecognitionService : Service() {
             val panelParams = WindowManager.LayoutParams(
                 (resources.displayMetrics.widthPixels * 0.88f).toInt(), WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = 145 }
             overlayManager?.addView(panel, panelParams); teachPanel = panel

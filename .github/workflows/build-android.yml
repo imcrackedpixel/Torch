@@ -23,3 +23,5 @@ jobs:
         with:
           name: torch-controller-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+# Rebuild on live-teaching revisions
