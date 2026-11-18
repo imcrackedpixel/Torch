@@ -204,9 +204,10 @@ class OverlayService : Service() {
 
     private fun saveExperimentTrial(index: Int, x: Float, y: Float, before: String) {
         try {
+            val trialTime = System.currentTimeMillis()
             val events = JSONArray(memoryPrefs.getString("experiments", "[]") ?: "[]")
             events.put(JSONObject().apply {
-                put("time", System.currentTimeMillis())
+                put("time", trialTime)
                 put("button", index + 1)
                 put("x", x.toDouble())
                 put("y", y.toDouble())
@@ -215,6 +216,22 @@ class OverlayService : Service() {
             })
             while (events.length() > 80) events.remove(0)
             memoryPrefs.edit().putString("experiments", events.toString()).apply()
+            handler.postDelayed({
+                try {
+                    val after = getSharedPreferences("live_teaching", MODE_PRIVATE)
+                        .getString("last_observation", "") ?: ""
+                    val latest = JSONArray(memoryPrefs.getString("experiments", "[]") ?: "[]")
+                    for (i in latest.length() - 1 downTo 0) {
+                        val trial = latest.optJSONObject(i) ?: continue
+                        if (trial.optLong("time") == trialTime) {
+                            trial.put("after", after.take(180))
+                            trial.put("result", if (after.isNotBlank() && after != before) "screen_text_changed" else "no_text_change_detected")
+                            break
+                        }
+                    }
+                    memoryPrefs.edit().putString("experiments", latest.toString()).apply()
+                } catch (_: Exception) { }
+            }, 1800L)
         } catch (_: Exception) { }
     }
 
