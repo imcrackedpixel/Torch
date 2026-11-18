@@ -40,6 +40,8 @@ class MainActivity : Activity() {
         status = TextView(this).apply {
             text = "Recognition is stopped."
             textSize = 15f
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(0, 20, 0, 16)
         }
         root.addView(status)

@@ -160,24 +160,8 @@ class VisualRecognitionService : Service() {
             observeGeneralGameplay(text)
             val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text })
             if (teachCandidate != null) askTeachQuestion(teachCandidate.first, teachCandidate.second)
-            val objectLines = objects.take(8).mapIndexed { index, item ->
-                val label = item.labels.maxByOrNull { it.confidence }?.let {
-                    "${it.text} ${(it.confidence * 100).toInt()}%"
-                } ?: "Unclassified object"
-                val box = item.boundingBox
-                "${index + 1}. $label at ${box.centerX()},${box.centerY()}"
-            }
-            val report = buildString {
-                append("Screen analysis\n")
-                append("Text: ")
-                append(if (text.isEmpty()) "none detected" else text.joinToString(" | "))
-                append("\nTorchlight cues: ")
-                append(torchSignals.joinToString(" | "))
-                append("\nGeneral objects: ")
-                append(if (objectLines.isEmpty()) "none classified" else objectLines.joinToString("; "))
-                append("\nExperimental visual cues; verify on live gameplay before enabling automation.")
-            }
-            sendStatus(report)
+            // Keep detailed OCR/object data internal; never dump raw screen text into the app UI.
+            sendStatus("Watching screen · learning locally")
             bitmap.recycle()
             processing.set(false)
         }
