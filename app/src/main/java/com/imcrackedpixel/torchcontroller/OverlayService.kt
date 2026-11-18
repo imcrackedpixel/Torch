@@ -31,26 +31,43 @@ class OverlayService : Service() {
     private var centerX = 0f
     private var centerY = 0f
     private var step = 0
-    private val directions = arrayOf(
-        Pair(0f, -58f), Pair(58f, 0f), Pair(0f, 58f), Pair(-58f, 0f)
+    private var patternIndex = 0
+    private var paceIndex = 1
+    private var status: TextView? = null
+    private var patternButton: Button? = null
+    private var paceButton: Button? = null
+
+    private val patterns: Array<Array<Pair<Float, Float>>> = arrayOf(
+        arrayOf(Pair(0f, -58f), Pair(58f, 0f), Pair(0f, 58f), Pair(-58f, 0f)),
+        arrayOf(Pair(-58f, 0f), Pair(58f, 0f)),
+        arrayOf(Pair(0f, -58f), Pair(0f, 58f)),
+        arrayOf(Pair(-41f, -41f), Pair(41f, -41f), Pair(41f, 41f), Pair(-41f, 41f))
     )
+    private val patternNames = arrayOf("SQUARE", "HORIZONTAL", "VERTICAL", "DIAGONAL")
+    private val holdTimes = longArrayOf(900L, 1300L, 1700L)
+    private val pauseTimes = longArrayOf(1800L, 1200L, 800L)
+    private val paceNames = arrayOf("GENTLE", "BALANCED", "QUICK")
+
     private val loop = object : Runnable {
         override fun run() {
             if (!running) return
             val svc = TouchService.instance
             if (svc == null) {
-                status?.text = "Enable Accessibility first"
-                running = false
+                stopAutomation("Accessibility disconnected")
                 return
             }
-            val d = directions[step % directions.size]
+            val direction = patterns[patternIndex][step % patterns[patternIndex].size]
             val density = resources.displayMetrics.density
-            svc.joystickDrag(centerX, centerY, d.first * density, d.second * density, 1600L)
+            svc.joystickDrag(centerX, centerY, direction.first * density, direction.second * density, holdTimes[paceIndex])
             step++
-            handler.postDelayed(this, 1900L)
+            status?.text = "${patternNames[patternIndex]} · ${paceNames[paceIndex]} · step ${step}"
+            handler.postDelayed(this, holdTimes[paceIndex] + pauseTimes[paceIndex])
         }
     }
-    private var status: TextView? = null
+
+    private val safetyStop = Runnable {
+        if (running) stopAutomation("5-minute safety limit reached")
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -85,16 +102,28 @@ class OverlayService : Service() {
         targetParams = WindowManager.LayoutParams((58*density).roundToInt(), (58*density).roundToInt(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.LEFT; x = (210*density).roundToInt(); y = (160*density).roundToInt() }
+            PixelFormat.TRANSLUCENT).apply {
+            gravity = Gravity.TOP or Gravity.LEFT
+            x = (210*density).roundToInt()
+            y = (160*density).roundToInt()
+        }
         target.setOnTouchListener(object : View.OnTouchListener {
-            var downX = 0f; var downY = 0f; var startX = 0; var startY = 0
+            var downX = 0f
+            var downY = 0f
+            var startX = 0
+            var startY = 0
             override fun onTouch(v: View, e: MotionEvent): Boolean {
                 when (e.action) {
-                    MotionEvent.ACTION_DOWN -> { downX=e.rawX; downY=e.rawY; startX=targetParams.x; startY=targetParams.y; return true }
+                    MotionEvent.ACTION_DOWN -> {
+                        downX=e.rawX; downY=e.rawY
+                        startX=targetParams.x; startY=targetParams.y
+                        return true
+                    }
                     MotionEvent.ACTION_MOVE -> {
                         targetParams.x = startX + (e.rawX-downX).roundToInt()
                         targetParams.y = startY + (e.rawY-downY).roundToInt()
-                        wm.updateViewLayout(target, targetParams); return true
+                        wm.updateViewLayout(target, targetParams)
+                        return true
                     }
                     MotionEvent.ACTION_UP -> {
                         centerX = targetParams.x + target.width/2f
@@ -106,40 +135,107 @@ class OverlayService : Service() {
                 return true
             }
         })
+
         panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(8,8,8,8)
             setBackgroundColor(0xDD20252B.toInt())
         }
-        status = TextView(this).apply { text = "Drag green target to joystick"; setTextColor(Color.WHITE); textSize=12f }
+        status = TextView(this).apply {
+            text = "Drag green target to joystick"
+            setTextColor(Color.WHITE)
+            textSize = 12f
+        }
         panel.addView(status)
-        panel.addView(Button(this).apply { text="AUTO"; setOnClickListener {
-            if (TouchService.instance == null) { status?.text="Enable Accessibility first"; return@setOnClickListener }
-            if (!running) { running=true; step=0; targetParams.flags = targetParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE; wm.updateViewLayout(target,targetParams); status?.text="AUTO running · STOP to halt"; handler.post(loop) }
-        }})
-        panel.addView(Button(this).apply { text="STOP"; setOnClickListener {
-            running=false; handler.removeCallbacks(loop); targetParams.flags = targetParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv(); if (target.isAttachedToWindow) wm.updateViewLayout(target,targetParams); status?.text="Stopped"
-        }})
-        panel.addView(Button(this).apply { text="CLOSE"; setOnClickListener { stopSelf() }})
+        patternButton = Button(this).apply {
+            text = "PATTERN: ${patternNames[patternIndex]}"
+            setOnClickListener {
+                if (running) {
+                    status?.text = "Stop AUTO before changing pattern"
+                } else {
+                    patternIndex = (patternIndex + 1) % patterns.size
+                    step = 0
+                    text = "PATTERN: ${patternNames[patternIndex]}"
+                    status?.text = "Pattern changed"
+                }
+            }
+        }
+        panel.addView(patternButton)
+        paceButton = Button(this).apply {
+            text = "PACE: ${paceNames[paceIndex]}"
+            setOnClickListener {
+                if (running) {
+                    status?.text = "Stop AUTO before changing pace"
+                } else {
+                    paceIndex = (paceIndex + 1) % paceNames.size
+                    text = "PACE: ${paceNames[paceIndex]}"
+                    status?.text = "Pause between moves: ${pauseTimes[paceIndex] / 1000.0}s"
+                }
+            }
+        }
+        panel.addView(paceButton)
+        panel.addView(Button(this).apply {
+            text = "AUTO · 5 MIN MAX"
+            setOnClickListener {
+                if (TouchService.instance == null) {
+                    status?.text = "Enable Accessibility first"
+                    return@setOnClickListener
+                }
+                if (!running) {
+                    running = true
+                    step = 0
+                    targetParams.flags = targetParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                    wm.updateViewLayout(target,targetParams)
+                    status?.text = "AUTO running · STOP to halt"
+                    handler.removeCallbacks(safetyStop)
+                    handler.postDelayed(safetyStop, 5 * 60 * 1000L)
+                    handler.post(loop)
+                }
+            }
+        })
+        panel.addView(Button(this).apply {
+            text = "STOP"
+            setOnClickListener { stopAutomation("Stopped") }
+        })
+        panel.addView(Button(this).apply {
+            text = "CLOSE"
+            setOnClickListener { stopSelf() }
+        })
         panelParams = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT).apply { gravity=Gravity.TOP or Gravity.RIGHT; x=(8*density).roundToInt(); y=(48*density).roundToInt() }
+            PixelFormat.TRANSLUCENT).apply {
+            gravity=Gravity.TOP or Gravity.RIGHT
+            x=(8*density).roundToInt()
+            y=(48*density).roundToInt()
+        }
         wm.addView(target, targetParams)
         wm.addView(panel, panelParams)
         centerX = targetParams.x + targetParams.width/2f
         centerY = targetParams.y + targetParams.height/2f
     }
 
+    private fun stopAutomation(message: String) {
+        running = false
+        handler.removeCallbacks(loop)
+        handler.removeCallbacks(safetyStop)
+        if (::targetParams.isInitialized && ::target.isInitialized && target.isAttachedToWindow) {
+            targetParams.flags = targetParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            wm.updateViewLayout(target, targetParams)
+        }
+        status?.text = message
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
-        running=false; handler.removeCallbacks(loop)
+        stopAutomation("Controller closed")
         if (::wm.isInitialized) {
             if (::target.isInitialized && target.isAttachedToWindow) wm.removeView(target)
             if (::panel.isInitialized && panel.isAttachedToWindow) wm.removeView(panel)
         }
         super.onDestroy()
     }
+
     override fun onBind(intent: Intent?): IBinder? = null
 }
