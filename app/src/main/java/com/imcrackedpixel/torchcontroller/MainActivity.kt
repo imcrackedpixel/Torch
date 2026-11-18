@@ -46,6 +46,10 @@ class MainActivity : Activity() {
         }
         root.addView(status)
         root.addView(Button(this).apply {
+            text = "OPEN AI CHAT"
+            setOnClickListener { startActivity(Intent(this@MainActivity, ChatActivity::class.java)) }
+        })
+        root.addView(Button(this).apply {
             text = "Start Live Teach AI"
             setOnClickListener {
                 val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
