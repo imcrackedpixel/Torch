@@ -1,5 +1,4 @@
 package com.imcrackedpixel.torchcontroller
-
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -13,7 +12,6 @@ import android.os.IBinder
 import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
@@ -23,241 +21,91 @@ import kotlin.math.roundToInt
 class OverlayService : Service() {
     private lateinit var wm: WindowManager
     private lateinit var panel: LinearLayout
-    private lateinit var target: TextView
-    private lateinit var targetParams: WindowManager.LayoutParams
-    private lateinit var panelParams: WindowManager.LayoutParams
     private val handler = Handler(Looper.getMainLooper())
     private var running = false
-    private var centerX = 0f
-    private var centerY = 0f
-    private var step = 0
-    private var patternIndex = 0
-    private var paceIndex = 1
     private var status: TextView? = null
-    private var patternButton: Button? = null
-    private var paceButton: Button? = null
-    private var routineEnabled = false
-    private var routineButton: Button? = null
-
-    private val patterns: Array<Array<Pair<Float, Float>>> = arrayOf(
-        arrayOf(Pair(0f, -58f), Pair(58f, 0f), Pair(0f, 58f), Pair(-58f, 0f)),
-        arrayOf(Pair(-58f, 0f), Pair(58f, 0f)),
-        arrayOf(Pair(0f, -58f), Pair(0f, 58f)),
-        arrayOf(Pair(-41f, -41f), Pair(41f, -41f), Pair(41f, 41f), Pair(-41f, 41f))
-    )
-    private val patternNames = arrayOf("SQUARE", "HORIZONTAL", "VERTICAL", "DIAGONAL")
-    private val holdTimes = longArrayOf(900L, 1300L, 1700L)
-    private val pauseTimes = longArrayOf(1800L, 1200L, 800L)
-    private val paceNames = arrayOf("GENTLE", "BALANCED", "QUICK")
-
-    private val loop = object : Runnable {
+    private val taps = arrayOfNulls<Button>(4)
+    private val params = arrayOfNulls<WindowManager.LayoutParams>(4)
+    private val cooldowns = longArrayOf(500, 1000, 1500, 2000)
+    private val enabled = BooleanArray(4)
+    private val cooldownChoices = longArrayOf(250, 500, 750, 1000, 1500, 2000, 3000, 5000)
+    private val prefs by lazy { getSharedPreferences("tap_positions", MODE_PRIVATE) }
+    private val safetyStop = Runnable { if (running) stopAutomation("5-minute safety limit reached") }
+    private val loops = Array(4) { index -> object : Runnable {
         override fun run() {
-            if (!running) return
-            val svc = TouchService.instance
-            if (svc == null) {
-                stopAutomation("Accessibility disconnected")
-                return
-            }
-            val direction = patterns[patternIndex][step % patterns[patternIndex].size]
-            val density = resources.displayMetrics.density
-            svc.joystickDrag(centerX, centerY, direction.first * density, direction.second * density, holdTimes[paceIndex])
-            step++
-            if (routineEnabled && step >= patterns[patternIndex].size) {
-                step = 0
-                patternIndex = (patternIndex + 1) % patterns.size
-                patternButton?.text = "PATTERN: ${patternNames[patternIndex]}"
-                status?.text = "Routine switched to ${patternNames[patternIndex]}"
-            } else {
-                status?.text = "${patternNames[patternIndex]} · ${paceNames[paceIndex]} · step ${step}"
-            }
-            handler.postDelayed(this, holdTimes[paceIndex] + pauseTimes[paceIndex])
+            if (!running || !enabled[index]) return
+            val b=taps[index] ?: return
+            val p=params[index] ?: return
+            val svc=TouchService.instance
+            if(svc==null){ stopAutomation("Accessibility disconnected"); return }
+            svc.tapAt(p.x+b.width/2f,p.y+b.height/2f)
+            handler.postDelayed(this,cooldowns[index])
         }
-    }
-
-    private val safetyStop = Runnable {
-        if (running) stopAutomation("5-minute safety limit reached")
-    }
-
+    }}
     override fun onCreate() {
         super.onCreate()
-        startForeground(7, notification())
-        wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        startForeground(7,notification())
+        wm=getSystemService(WINDOW_SERVICE) as WindowManager
         buildOverlay()
     }
-
-    private fun notification(): Notification {
-        val channelId = "torch_controller"
-        if (Build.VERSION.SDK_INT >= 26) {
-            val channel = NotificationChannel(channelId, "Torch Controller", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
-        return if (Build.VERSION.SDK_INT >= 26) {
-            Notification.Builder(this, channelId).setContentTitle("Torch Controller active").setSmallIcon(android.R.drawable.ic_media_play).build()
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this).setContentTitle("Torch Controller active").setSmallIcon(android.R.drawable.ic_media_play).build()
-        }
+    private fun notification():Notification {
+        val id="torch_controller"
+        if(Build.VERSION.SDK_INT>=26) getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(id,"Tap Controller",NotificationManager.IMPORTANCE_LOW))
+        return if(Build.VERSION.SDK_INT>=26) Notification.Builder(this,id).setContentTitle("Tap Controller active").setSmallIcon(android.R.drawable.ic_media_play).build()
+        else @Suppress("DEPRECATION") Notification.Builder(this).setContentTitle("Tap Controller active").setSmallIcon(android.R.drawable.ic_media_play).build()
     }
-
     private fun buildOverlay() {
-        val density = resources.displayMetrics.density
-        target = TextView(this).apply {
-            text = "✥"
-            textSize = 30f
-            gravity = Gravity.CENTER
-            setTextColor(Color.BLACK)
-            setBackgroundColor(0xCC66FF66.toInt())
-        }
-        targetParams = WindowManager.LayoutParams((58*density).roundToInt(), (58*density).roundToInt(),
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT).apply {
-            gravity = Gravity.TOP or Gravity.LEFT
-            x = (210*density).roundToInt()
-            y = (160*density).roundToInt()
-        }
-        target.setOnTouchListener(object : View.OnTouchListener {
-            var downX = 0f
-            var downY = 0f
-            var startX = 0
-            var startY = 0
-            override fun onTouch(v: View, e: MotionEvent): Boolean {
-                when (e.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        downX=e.rawX; downY=e.rawY
-                        startX=targetParams.x; startY=targetParams.y
-                        return true
-                    }
+        val density=resources.displayMetrics.density
+        for(i in 0..3) {
+            val button=Button(this).apply { text="T"+(i+1)+"\nOFF"; textSize=12f; setTextColor(Color.WHITE); setBackgroundColor(0xCC334455.toInt()); isAllCaps=false }
+            val lp=WindowManager.LayoutParams((64*density).roundToInt(),(64*density).roundToInt(),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply {
+                gravity=Gravity.TOP or Gravity.LEFT
+                x=prefs.getInt("x"+i,(70+i*72)*density.roundToInt())
+                y=prefs.getInt("y"+i,(220+i*12)*density.roundToInt())
+            }
+            params[i]=lp; taps[i]=button
+            var downX=0f; var downY=0f; var startX=0; var startY=0; var dragged=false
+            button.setOnTouchListener { v,e ->
+                when(e.action) {
+                    MotionEvent.ACTION_DOWN -> { downX=e.rawX; downY=e.rawY; startX=lp.x; startY=lp.y; dragged=false; true }
                     MotionEvent.ACTION_MOVE -> {
-                        targetParams.x = startX + (e.rawX-downX).roundToInt()
-                        targetParams.y = startY + (e.rawY-downY).roundToInt()
-                        wm.updateViewLayout(target, targetParams)
-                        return true
+                        if(kotlin.math.abs(e.rawX-downX)>8*density || kotlin.math.abs(e.rawY-downY)>8*density) dragged=true
+                        if(dragged){lp.x=startX+(e.rawX-downX).roundToInt(); lp.y=startY+(e.rawY-downY).roundToInt(); wm.updateViewLayout(v,lp)}
+                        true
                     }
                     MotionEvent.ACTION_UP -> {
-                        centerX = targetParams.x + target.width/2f
-                        centerY = targetParams.y + target.height/2f
-                        status?.text = "Joystick anchor set"
-                        return true
+                        if(dragged) prefs.edit().putInt("x"+i,lp.x).putInt("y"+i,lp.y).apply()
+                        else { enabled[i]=!enabled[i]; button.text="T"+(i+1)+"\n"+(if(enabled[i]) "ON" else "OFF"); button.setBackgroundColor(if(enabled[i]) 0xCC2E7D32.toInt() else 0xCC334455.toInt()); updateStatus() }
+                        true
                     }
+                    else -> true
                 }
-                return true
             }
-        })
-
-        panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(8,8,8,8)
-            setBackgroundColor(0xDD20252B.toInt())
+            wm.addView(button,lp)
         }
-        status = TextView(this).apply {
-            text = "Drag green target to joystick"
-            setTextColor(Color.WHITE)
-            textSize = 12f
-        }
+        panel=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(8,8,8,8); setBackgroundColor(0xDD20252B.toInt()) }
+        status=TextView(this).apply { text="Tap bubbles to enable · drag to move"; setTextColor(Color.WHITE); textSize=12f }
         panel.addView(status)
-        patternButton = Button(this).apply {
-            text = "PATTERN: ${patternNames[patternIndex]}"
+        for(i in 0..3) panel.addView(Button(this).apply {
+            text="T"+(i+1)+" cooldown: "+cooldowns[i]+"ms"
             setOnClickListener {
-                if (running) {
-                    status?.text = "Stop AUTO before changing pattern"
-                } else {
-                    patternIndex = (patternIndex + 1) % patterns.size
-                    step = 0
-                    text = "PATTERN: ${patternNames[patternIndex]}"
-                    status?.text = "Pattern changed"
-                }
-            }
-        }
-        panel.addView(patternButton)
-        paceButton = Button(this).apply {
-            text = "PACE: ${paceNames[paceIndex]}"
-            setOnClickListener {
-                if (running) {
-                    status?.text = "Stop AUTO before changing pace"
-                } else {
-                    paceIndex = (paceIndex + 1) % paceNames.size
-                    text = "PACE: ${paceNames[paceIndex]}"
-                    status?.text = "Pause between moves: ${pauseTimes[paceIndex] / 1000.0}s"
-                }
-            }
-        }
-        panel.addView(paceButton)
-        routineButton = Button(this).apply {
-            text = "ROUTINE: OFF"
-            setOnClickListener {
-                if (running) {
-                    status?.text = "Stop AUTO before changing routine"
-                } else {
-                    routineEnabled = !routineEnabled
-                    text = if (routineEnabled) "ROUTINE: ON · ROTATE" else "ROUTINE: OFF"
-                    status?.text = if (routineEnabled) "Patterns will rotate automatically" else "Single pattern mode"
-                }
-            }
-        }
-        panel.addView(routineButton)
-        panel.addView(Button(this).apply {
-            text = "AUTO · 5 MIN MAX"
-            setOnClickListener {
-                if (TouchService.instance == null) {
-                    status?.text = "Enable Accessibility first"
-                    return@setOnClickListener
-                }
-                if (!running) {
-                    running = true
-                    step = 0
-                    targetParams.flags = targetParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                    wm.updateViewLayout(target,targetParams)
-                    status?.text = "AUTO running · STOP to halt"
-                    handler.removeCallbacks(safetyStop)
-                    handler.postDelayed(safetyStop, 5 * 60 * 1000L)
-                    handler.post(loop)
-                }
+                val index=cooldownChoices.indexOf(cooldowns[i]).let{if(it<0)0 else it}
+                cooldowns[i]=cooldownChoices[(index+1)%cooldownChoices.size]
+                text="T"+(i+1)+" cooldown: "+cooldowns[i]+"ms"
             }
         })
-        panel.addView(Button(this).apply {
-            text = "STOP"
-            setOnClickListener { stopAutomation("Stopped") }
-        })
-        panel.addView(Button(this).apply {
-            text = "CLOSE"
-            setOnClickListener { stopSelf() }
-        })
-        panelParams = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT).apply {
-            gravity=Gravity.TOP or Gravity.RIGHT
-            x=(8*density).roundToInt()
-            y=(48*density).roundToInt()
-        }
-        wm.addView(target, targetParams)
-        wm.addView(panel, panelParams)
-        centerX = targetParams.x + targetParams.width/2f
-        centerY = targetParams.y + targetParams.height/2f
+        panel.addView(Button(this).apply { text="START ALL"; setOnClickListener {
+            if(TouchService.instance==null){status?.text="Enable Accessibility first";return@setOnClickListener}
+            if(!running){running=true; for(i in 0..3) if(enabled[i]) handler.post(loops[i]); handler.removeCallbacks(safetyStop); handler.postDelayed(safetyStop,300000); updateStatus()}
+        }})
+        panel.addView(Button(this).apply { text="STOP ALL"; setOnClickListener { stopAutomation("Stopped") } })
+        panel.addView(Button(this).apply { text="CLOSE"; setOnClickListener { stopSelf() } })
+        val panelParams=WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply { gravity=Gravity.TOP or Gravity.RIGHT; x=(8*density).roundToInt(); y=(48*density).roundToInt() }
+        wm.addView(panel,panelParams)
     }
-
-    private fun stopAutomation(message: String) {
-        running = false
-        handler.removeCallbacks(loop)
-        handler.removeCallbacks(safetyStop)
-        if (::targetParams.isInitialized && ::target.isInitialized && target.isAttachedToWindow) {
-            targetParams.flags = targetParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-            wm.updateViewLayout(target, targetParams)
-        }
-        status?.text = message
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
-
-    override fun onDestroy() {
-        stopAutomation("Controller closed")
-        if (::wm.isInitialized) {
-            if (::target.isInitialized && target.isAttachedToWindow) wm.removeView(target)
-            if (::panel.isInitialized && panel.isAttachedToWindow) wm.removeView(panel)
-        }
-        super.onDestroy()
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
+    private fun updateStatus(){ status?.text=if(running) "Running · "+enabled.count{it}+" active · STOP ALL" else "Tap bubbles to enable · drag to move" }
+    private fun stopAutomation(message:String){running=false;for(i in 0..3)handler.removeCallbacks(loops[i]);handler.removeCallbacks(safetyStop);status?.text=message}
+    override fun onStartCommand(intent:Intent?,flags:Int,startId:Int)=START_STICKY
+    override fun onDestroy(){stopAutomation("Controller closed");for(b in taps)if(b?.isAttachedToWindow==true)wm.removeView(b);if(::panel.isInitialized&&panel.isAttachedToWindow)wm.removeView(panel);super.onDestroy()}
+    override fun onBind(intent:Intent?):IBinder?=null
 }

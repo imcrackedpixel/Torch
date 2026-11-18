@@ -1,29 +1,17 @@
-# Torch Controller (Android)
+# Tap Controller (Android)
 
-A floating joystick-gesture helper prototype for personal testing with Torchlight: Infinite.
+Four movable floating tap targets with independent cooldown timers.
 
 ## Build
-Open the **Actions** tab and run **Build Torch Controller APK**, or push changes to the `iris-controller` branch. Download the `torch-controller-debug` artifact from the completed workflow.
+Run **Build Torch Controller APK** from GitHub Actions or push to the `iris-controller` branch. Download the `torch-controller-debug` artifact from a completed run.
 
-## First use
-1. Install the APK.
-2. Allow **Display over other apps**.
-3. Open Android Accessibility settings and enable **Torch Controller**.
-4. Return to the app and start the floating controller.
-5. Open Torchlight. Drag the green crosshair so its centre sits on the joystick's resting centre.
-6. Choose a movement pattern and pace before starting AUTO.
-7. Tap **AUTO · 5 MIN MAX** for a supervised test. Tap **STOP** immediately to stop.
+## Setup
+1. Install APK.
+2. Allow Display over other apps.
+3. Enable Accessibility gesture access.
+4. Show floating controller.
+5. Drag T1–T4 to desired screen locations. Tap each bubble to toggle ON/OFF.
+6. Tap each cooldown setting to cycle through 250ms, 500ms, 750ms, 1s, 1.5s, 2s, 3s, 5s.
+7. START ALL. STOP ALL stops immediately. Five-minute safety stop is included.
 
-## Movement controls
-- **SQUARE**: up, right, down, left.
-- **HORIZONTAL**: left, right.
-- **VERTICAL**: up, down.
-- **DIAGONAL**: four diagonal directions.
-- **PACE** cycles through Gentle, Balanced and Quick, changing the hold duration and pause between gestures. Stop AUTO before changing settings.
-- **ROUTINE** toggles automatic rotation: it completes the selected pattern, then advances through Square, Horizontal, Vertical and Diagonal. Choose the starting pattern and pace while AUTO is stopped.
-- AUTO stops automatically after five minutes. STOP remains available at all times.
-
-The app sends gestures through Android AccessibilityService. Android/game versions may reject simulated gestures. This is not a screen-reading AI: it cannot detect enemies, collect loot, or read health. It does not bypass anti-cheat or guarantee compatibility with game rules. Automation may violate the game's terms and risk account action.
-
-## Safety
-Test in a safe area, keep STOP visible, supervise every run, and stop if movement is unexpected. This is an early prototype, not an autonomous farming bot.
+Positions are saved. This tap utility does not read or interpret screen content; supervise use.
