@@ -7,6 +7,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
@@ -23,6 +27,7 @@ import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import android.view.Gravity
+import android.view.View
 import android.provider.Settings
 import android.widget.Button
 import android.widget.EditText
@@ -37,6 +42,44 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.concurrent.atomic.AtomicBoolean
+
+
+private class ScreenHighlightOverlay(context: Context) : View(context) {
+    private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFD54F.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = 3.5f
+    }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x22FFD54F
+        style = Paint.Style.FILL
+    }
+    private var boxes: List<Rect> = emptyList()
+    private var sourceWidth = 1
+    private var sourceHeight = 1
+    private var screenWidth = 1
+    private var screenHeight = 1
+
+    fun setBoxes(value: List<Rect>, srcW: Int, srcH: Int, screenW: Int, screenH: Int) {
+        boxes = value
+        sourceWidth = srcW.coerceAtLeast(1)
+        sourceHeight = srcH.coerceAtLeast(1)
+        screenWidth = screenW.coerceAtLeast(1)
+        screenHeight = screenH.coerceAtLeast(1)
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val sx = screenWidth.toFloat() / sourceWidth
+        val sy = screenHeight.toFloat() / sourceHeight
+        boxes.forEach { b ->
+            val r = RectF(b.left * sx, b.top * sy, b.right * sx, b.bottom * sy)
+            canvas.drawRoundRect(r, 7f, 7f, fill)
+            canvas.drawRoundRect(r, 7f, 7f, outline)
+        }
+    }
+}
 
 class VisualRecognitionService : Service() {
     private var projection: MediaProjection? = null
@@ -54,6 +97,7 @@ class VisualRecognitionService : Service() {
     private var overlayManager: WindowManager? = null
     private var activeQuestionKey: String? = null
     private var answerField: EditText? = null
+    private var highlightOverlay: ScreenHighlightOverlay? = null
     private var lastScreenText: String = ""
     private var lastGeneralQuestionAt: Long = 0L
     private var generalQuestionNumber: Int = 0
@@ -158,6 +202,7 @@ class VisualRecognitionService : Service() {
             val objects = if (objectTask.isSuccessful) objectTask.result else emptyList()
             val torchSignals = analyseTorchlight(bitmap, ocrLines.map { it.text })
             observeGeneralGameplay(text)
+            updateHighlights(ocrLines, bitmap.width, bitmap.height)
             val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text })
             if (teachCandidate != null) askTeachQuestion(teachCandidate.first, teachCandidate.second)
             // Keep detailed OCR/object data internal; never dump raw screen text into the app UI.
@@ -272,6 +317,41 @@ class VisualRecognitionService : Service() {
             y += sy
         }
         return count
+    }
+
+
+    // Transparent, non-touchable rectangles mark the OCR text currently being read.
+    private fun updateHighlights(lines: List<Text.Line>, sourceWidth: Int, sourceHeight: Int) {
+        val screen = android.util.Point()
+        @Suppress("DEPRECATION")
+        (getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay.getRealSize(screen)
+        val boxes = lines.mapNotNull { line ->
+            val bounds = line.boundingBox ?: return@mapNotNull null
+            Rect(bounds)
+        }.take(10)
+        mainHandler.post {
+            if (!Settings.canDrawOverlays(this)) return@post
+            try {
+                val wm = overlayManager ?: (getSystemService(WINDOW_SERVICE) as WindowManager).also { overlayManager = it }
+                var view = highlightOverlay
+                if (view == null) {
+                    view = ScreenHighlightOverlay(this)
+                    val params = WindowManager.LayoutParams(
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                        PixelFormat.TRANSLUCENT
+                    ).apply { gravity = Gravity.TOP or Gravity.LEFT }
+                    wm.addView(view, params)
+                    highlightOverlay = view
+                }
+                view?.setBoxes(boxes, sourceWidth, sourceHeight, screen.x, screen.y)
+            } catch (_: Exception) { }
+        }
     }
 
     private fun askTeachQuestion(key: String, question: String) {
@@ -403,6 +483,8 @@ class VisualRecognitionService : Service() {
     }
 
     private fun removeTeachOverlay() {
+        try { highlightOverlay?.let { overlayManager?.removeView(it) } } catch (_: Exception) {}
+        highlightOverlay = null
         try { teachPill?.let { overlayManager?.removeView(it) } } catch (_: Exception) {}
         try { teachPanel?.let { overlayManager?.removeView(it) } } catch (_: Exception) {}
         teachPill = null; teachPanel = null; teachQuestion = null; overlayManager = null
