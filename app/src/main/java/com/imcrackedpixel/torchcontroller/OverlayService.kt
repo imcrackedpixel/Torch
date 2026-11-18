@@ -36,6 +36,8 @@ class OverlayService : Service() {
     private var status: TextView? = null
     private var patternButton: Button? = null
     private var paceButton: Button? = null
+    private var routineEnabled = false
+    private var routineButton: Button? = null
 
     private val patterns: Array<Array<Pair<Float, Float>>> = arrayOf(
         arrayOf(Pair(0f, -58f), Pair(58f, 0f), Pair(0f, 58f), Pair(-58f, 0f)),
@@ -60,7 +62,14 @@ class OverlayService : Service() {
             val density = resources.displayMetrics.density
             svc.joystickDrag(centerX, centerY, direction.first * density, direction.second * density, holdTimes[paceIndex])
             step++
-            status?.text = "${patternNames[patternIndex]} · ${paceNames[paceIndex]} · step ${step}"
+            if (routineEnabled && step >= patterns[patternIndex].size) {
+                step = 0
+                patternIndex = (patternIndex + 1) % patterns.size
+                patternButton?.text = "PATTERN: ${patternNames[patternIndex]}"
+                status?.text = "Routine switched to ${patternNames[patternIndex]}"
+            } else {
+                status?.text = "${patternNames[patternIndex]} · ${paceNames[paceIndex]} · step ${step}"
+            }
             handler.postDelayed(this, holdTimes[paceIndex] + pauseTimes[paceIndex])
         }
     }
@@ -174,6 +183,19 @@ class OverlayService : Service() {
             }
         }
         panel.addView(paceButton)
+        routineButton = Button(this).apply {
+            text = "ROUTINE: OFF"
+            setOnClickListener {
+                if (running) {
+                    status?.text = "Stop AUTO before changing routine"
+                } else {
+                    routineEnabled = !routineEnabled
+                    text = if (routineEnabled) "ROUTINE: ON · ROTATE" else "ROUTINE: OFF"
+                    status?.text = if (routineEnabled) "Patterns will rotate automatically" else "Single pattern mode"
+                }
+            }
+        }
+        panel.addView(routineButton)
         panel.addView(Button(this).apply {
             text = "AUTO · 5 MIN MAX"
             setOnClickListener {
