@@ -20,6 +20,7 @@ Open the **Actions** tab and run **Build Torch Controller APK**, or push changes
 - **VERTICAL**: up, down.
 - **DIAGONAL**: four diagonal directions.
 - **PACE** cycles through Gentle, Balanced and Quick, changing the hold duration and pause between gestures. Stop AUTO before changing settings.
+- **ROUTINE** toggles automatic rotation: it completes the selected pattern, then advances through Square, Horizontal, Vertical and Diagonal. Choose the starting pattern and pace while AUTO is stopped.
 - AUTO stops automatically after five minutes. STOP remains available at all times.
 
 The app sends gestures through Android AccessibilityService. Android/game versions may reject simulated gestures. This is not a screen-reading AI: it cannot detect enemies, collect loot, or read health. It does not bypass anti-cheat or guarantee compatibility with game rules. Automation may violate the game's terms and risk account action.
