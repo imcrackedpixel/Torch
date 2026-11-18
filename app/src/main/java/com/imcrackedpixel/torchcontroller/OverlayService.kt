@@ -20,6 +20,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.roundToInt
 
+// Supervised experiments are bounded and user-controlled.
 class OverlayService : Service() {
     private lateinit var wm: WindowManager
     private lateinit var panel: LinearLayout
