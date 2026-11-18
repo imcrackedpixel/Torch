@@ -34,7 +34,7 @@ class MainActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
         root.addView(TextView(this).apply {
-            text = "TORCH CONTROLLER\n\nVISUAL RECOGNITION\nStart screen capture, then open Torchlight. Torch analyses visible text on-device and reports what it can read. Nothing is uploaded. No game taps are performed by this feature."
+            text = "TORCH CONTROLLER\n\nVISUAL RECOGNITION\nStart screen capture, then open Torchlight. Torch reads visible text and detects general objects on-device. This is not yet trained to identify specific Torchlight enemies or loot. Nothing is uploaded and this feature does not perform game taps."
             textSize = 17f
         })
         status = TextView(this).apply {

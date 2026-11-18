@@ -20,8 +20,13 @@ import android.os.HandlerThread
 import android.os.IBinder
 import android.util.DisplayMetrics
 import android.view.WindowManager
+import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.objects.DetectedObject
+import com.google.mlkit.vision.objects.ObjectDetection
+import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -33,6 +38,14 @@ class VisualRecognitionService : Service() {
     private var handler: Handler? = null
     private val processing = AtomicBoolean(false)
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
+    private val objectDetector by lazy {
+        val options = ObjectDetectorOptions.Builder()
+            .setDetectorMode(ObjectDetectorOptions.STREAM_MODE)
+            .enableClassification()
+            .enableMultipleObjects()
+            .build()
+        ObjectDetection.getClient(options)
+    }
     private val captureLoop = object : Runnable {
         override fun run() {
             captureFrame()
@@ -77,7 +90,7 @@ class VisualRecognitionService : Service() {
             val height = (metrics.heightPixels * (width.toFloat() / metrics.widthPixels)).toInt()
             val density = metrics.densityDpi
 
-            worker = HandlerThread("TorchScreenOCR").also { it.start() }
+            worker = HandlerThread("TorchVisualRecognition").also { it.start() }
             handler = Handler(worker!!.looper)
             reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
             virtualDisplay = projection?.createVirtualDisplay(
@@ -91,7 +104,7 @@ class VisualRecognitionService : Service() {
                     stopSelf()
                 }
             }, handler)
-            sendStatus("Watching screen. OCR is running on-device; no images are uploaded.")
+            sendStatus("Watching screen. On-device text and general-object detection are active. Nothing is uploaded.")
             handler?.post(captureLoop)
         } catch (e: Exception) {
             sendStatus("Could not start capture: ${e.message}")
@@ -111,18 +124,36 @@ class VisualRecognitionService : Service() {
             processing.set(false)
             return
         }
-        recognizer.process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener { result ->
-                val lines = result.textBlocks.flatMap { it.lines }.map { it.text.trim() }.filter { it.isNotEmpty() }
-                val summary = if (lines.isEmpty()) "Screen captured; no readable text detected yet."
-                    else "Recognised ${lines.size} text line(s):\n" + lines.take(18).joinToString("\n")
-                sendStatus(summary)
+
+        val input = InputImage.fromBitmap(bitmap, 0)
+        val textTask = recognizer.process(input)
+        val objectTask = objectDetector.process(input)
+        Tasks.whenAllComplete(textTask, objectTask).addOnCompleteListener {
+            val text = if (textTask.isSuccessful) textTask.result.textBlocks
+                .flatMap { block -> block.lines }
+                .map { line -> line.text.trim() }
+                .filter { line -> line.isNotEmpty() }
+                .take(12) else emptyList()
+            val objects = if (objectTask.isSuccessful) objectTask.result else emptyList()
+            val objectLines = objects.take(8).mapIndexed { index, item ->
+                val label = item.labels.maxByOrNull { it.confidence }?.let {
+                    "${it.text} ${(it.confidence * 100).toInt()}%"
+                } ?: "Unclassified object"
+                val box = item.boundingBox
+                "${index + 1}. $label at ${box.centerX()},${box.centerY()}"
             }
-            .addOnFailureListener { sendStatus("Screen captured, but text recognition failed: ${it.localizedMessage}") }
-            .addOnCompleteListener {
-                bitmap.recycle()
-                processing.set(false)
+            val report = buildString {
+                append("Screen analysis\n")
+                append("Text: ")
+                append(if (text.isEmpty()) "none detected" else text.joinToString(" | "))
+                append("\nObjects: ")
+                append(if (objectLines.isEmpty()) "no general objects classified" else objectLines.joinToString("; "))
+                append("\nNote: generic object labels are not Torchlight-specific enemy or loot recognition.")
             }
+            sendStatus(report)
+            bitmap.recycle()
+            processing.set(false)
+        }
     }
 
     private fun imageToBitmap(image: Image): Bitmap {
@@ -167,6 +198,7 @@ class VisualRecognitionService : Service() {
         try { projection?.stop() } catch (_: Exception) {}
         projection = null
         try { recognizer.close() } catch (_: Exception) {}
+        try { objectDetector.close() } catch (_: Exception) {}
         worker?.quitSafely()
         worker = null
         handler = null
