@@ -8,6 +8,7 @@
         android:label="Torch Controller"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:supportsRtl="true">
+        <activity android:name=".ChatActivity" android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
