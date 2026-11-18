@@ -202,7 +202,7 @@ class VisualRecognitionService : Service() {
             val text = ocrLines.map { it.text.trim() }.take(16)
             val objects = if (objectTask.isSuccessful) objectTask.result else emptyList()
             val torchSignals = analyseTorchlight(bitmap, ocrLines.map { it.text })
-            observeGeneralGameplay(text)
+            observeGeneralGameplay(text, torchSignals, objects.size)
             val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text })
             updateHighlights(ocrLines, bitmap.width, bitmap.height, teachCandidate)
             if (teachCandidate != null) askTeachQuestion(teachCandidate.first, teachCandidate.second)
@@ -464,30 +464,25 @@ class VisualRecognitionService : Service() {
     }
 
 
-    // General-purpose observation: compare successive OCR snapshots, not just known game categories.
-    private fun observeGeneralGameplay(lines: List<String>) {
+    // Builds a compact state estimate from OCR and first-pass HUD cues.
+    // This is evidence tracking, not proof of enemy defeat or skill effectiveness.
+    private fun observeGeneralGameplay(lines: List<String>, cues: List<String>, objectCount: Int) {
         val current = lines.joinToString(" | ").take(900)
-        if (current.isBlank()) return
-        // Keep the latest compact visual context available to the controller action recorder.
-        learnedPrefs.edit().putString("last_observation", current.take(240)).apply()
+        if (current.isBlank() && cues.isEmpty() && objectCount == 0) return
+        val summary = GameplayStateTracker.observe(this, lines, cues, objectCount)
+        currentObservation = summary
         val now = System.currentTimeMillis()
         val changed = current != lastScreenText
         if (changed && now - lastGeneralQuestionAt > 15000L) {
             val before = lastScreenText
-            // Keep OCR details in local notes, but never show a raw transcript in the gameplay panel.
-            currentObservation = if (before.isBlank()) {
-                "First gameplay screen observed. Visible text: " + current.take(240)
-            } else {
-                "Gameplay screen changed. Visible text: " + current.take(240)
-            }
-            saveGameplayNote("OBSERVATION: " + currentObservation)
-            generalQuestionNumber += 1
-            val questionKey = "general_gameplay_" + generalQuestionNumber
-            if (activeQuestionKey == null) {
+            saveGameplayNote("OBSERVATION: " + summary)
+            if (activeQuestionKey == null && before.isNotBlank()) {
+                generalQuestionNumber += 1
+                val questionKey = "general_gameplay_" + generalQuestionNumber
                 activeQuestionKey = questionKey
                 askedThisSession.add(questionKey)
                 mainHandler.post {
-                    teachQuestion?.text = "I noticed the screen changed. What were you doing just now?"
+                    teachQuestion?.text = "I noticed a gameplay change. Was that movement, combat, loot, or a menu?"
                     answerField?.setText("")
                     teachPanel?.visibility = android.view.View.VISIBLE
                 }
