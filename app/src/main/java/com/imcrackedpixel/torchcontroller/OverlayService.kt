@@ -27,7 +27,41 @@ class OverlayService : Service() {
     private var running = false
     private var recording = false
     private var replaying = false
+    private var experimenting = false
+    private var experimentIndex = 0
+    private var experimentStartedAt = 0L
     private val replayTasks = mutableListOf<Runnable>()
+    private val experimentLoop = object : Runnable {
+        override fun run() {
+            if (!experimenting) return
+            if (System.currentTimeMillis() - experimentStartedAt >= 60000L) {
+                stopExperiment("Experiment finished after 60 seconds")
+                return
+            }
+            val available = (0..3).filter { enabled[it] }
+            if (available.isEmpty()) {
+                stopExperiment("Experiment stopped: enable at least one T button")
+                return
+            }
+            val index = available[experimentIndex % available.size]
+            experimentIndex++
+            val button = taps[index]
+            val lp = params[index]
+            val service = TouchService.instance
+            if (button == null || lp == null || service == null) {
+                stopExperiment("Experiment stopped: controller unavailable")
+                return
+            }
+            val x = lp.x + button.width / 2f
+            val y = lp.y + button.height / 2f
+            val before = getSharedPreferences("live_teaching", MODE_PRIVATE)
+                .getString("last_observation", "") ?: ""
+            service.tapAt(x, y)
+            saveExperimentTrial(index, x, y, before)
+            status?.text = "Experiment: testing T" + (index + 1) + " · " + ((60000L - (System.currentTimeMillis() - experimentStartedAt)) / 1000L) + "s left"
+            handler.postDelayed(this, 3000L)
+        }
+    }
     private val memoryPrefs by lazy { getSharedPreferences("game_action_memory", MODE_PRIVATE) }
     private var status: TextView? = null
     private val taps = arrayOfNulls<Button>(4)
@@ -105,6 +139,14 @@ class OverlayService : Service() {
             }
         })
         panel.addView(Button(this).apply {
+            text = "START EXPERIMENT (60 SEC)"
+            setOnClickListener { startExperiment() }
+        })
+        panel.addView(Button(this).apply {
+            text = "STOP EXPERIMENT"
+            setOnClickListener { stopExperiment("Experiment stopped by you") }
+        })
+        panel.addView(Button(this).apply {
             text = "REPLAY LAST RECORDING"
             setOnClickListener { replayLastRecording() }
         })
@@ -133,6 +175,49 @@ class OverlayService : Service() {
         val panelParams=WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply { gravity=Gravity.TOP or Gravity.RIGHT; x=(8*density).roundToInt(); y=(48*density).roundToInt() }
         wm.addView(panel,panelParams)
     }
+    private fun startExperiment() {
+        if (experimenting) {
+            status?.text = "Experiment is already running"
+            return
+        }
+        if (TouchService.instance == null) {
+            status?.text = "Enable Accessibility before experimenting"
+            return
+        }
+        if ((0..3).none { enabled[it] }) {
+            status?.text = "Turn ON at least one T1–T4 button first"
+            return
+        }
+        stopAutomation("Automation paused for experiment")
+        experimenting = true
+        experimentIndex = 0
+        experimentStartedAt = System.currentTimeMillis()
+        status?.text = "Experiment started · one enabled skill every 3 seconds · 60-second limit"
+        handler.post(experimentLoop)
+    }
+
+    private fun stopExperiment(message: String) {
+        experimenting = false
+        handler.removeCallbacks(experimentLoop)
+        status?.text = message
+    }
+
+    private fun saveExperimentTrial(index: Int, x: Float, y: Float, before: String) {
+        try {
+            val events = JSONArray(memoryPrefs.getString("experiments", "[]") ?: "[]")
+            events.put(JSONObject().apply {
+                put("time", System.currentTimeMillis())
+                put("button", index + 1)
+                put("x", x.toDouble())
+                put("y", y.toDouble())
+                put("before", before.take(180))
+                put("result", "pending_observation")
+            })
+            while (events.length() > 80) events.remove(0)
+            memoryPrefs.edit().putString("experiments", events.toString()).apply()
+        } catch (_: Exception) { }
+    }
+
     private fun recordAction(index: Int, x: Float, y: Float) {
         if (!recording) return
         try {
@@ -195,7 +280,7 @@ class OverlayService : Service() {
     }
 
     private fun updateStatus(){ status?.text=if(running) "Running · "+enabled.count{it}+" active · STOP ALL" else "Tap bubbles to enable · drag to move" }
-    private fun stopAutomation(message:String){running=false;for(i in 0..3)handler.removeCallbacks(loops[i]);handler.removeCallbacks(safetyStop);stopReplay();status?.text=message}
+    private fun stopAutomation(message:String){running=false;for(i in 0..3)handler.removeCallbacks(loops[i]);handler.removeCallbacks(safetyStop);stopReplay();stopExperiment(message);status?.text=message}
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int)=START_STICKY
     override fun onDestroy(){recording=false;stopAutomation("Controller closed");for(b in taps)if(b?.isAttachedToWindow==true)wm.removeView(b);if(::panel.isInitialized&&panel.isAttachedToWindow)wm.removeView(panel);super.onDestroy()}
     override fun onBind(intent:Intent?):IBinder?=null
