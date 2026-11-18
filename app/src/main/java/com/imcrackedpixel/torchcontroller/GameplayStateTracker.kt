@@ -22,7 +22,7 @@ object GameplayStateTracker {
                 confidence = "medium"
                 next = "Check whether the pickup prompt appears, then confirm the pickup manually"
             }
-            cues.any { it.contains("enemy/combat", true) } ||
+            cues.any { it.contains("enemy/combat", true) || it.contains("enemy health bars", true) } ||
                 listOf("boss", "enemy", "elite", "monster").any { text.contains(it) } -> {
                 state = "POSSIBLE COMBAT"
                 confidence = if (cues.any { it.contains("enemy/combat", true) }) "medium" else "low"
