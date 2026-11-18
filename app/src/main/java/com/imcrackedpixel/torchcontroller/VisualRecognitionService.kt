@@ -201,10 +201,20 @@ class VisualRecognitionService : Service() {
                 .filter { line -> line.text.trim().isNotEmpty() } else emptyList()
             val text = ocrLines.map { it.text.trim() }.take(16)
             val objects = if (objectTask.isSuccessful) objectTask.result else emptyList()
-            val torchSignals = analyseTorchlight(bitmap, ocrLines.map { it.text })
+            val enemyBars = detectEnemyHealthBars(bitmap)
+            val torchSignals = analyseTorchlight(bitmap, ocrLines.map { it.text }).toMutableList()
+            if (enemyBars.isNotEmpty()) {
+                torchSignals += "Possible enemy health bars detected: ${enemyBars.size}"
+                learnedPrefs.edit()
+                    .putInt("enemy_bar_count", enemyBars.size)
+                    .putString("enemy_bar_boxes", enemyBars.joinToString(";") { "${it.left},${it.top},${it.right},${it.bottom}" })
+                    .apply()
+            } else {
+                learnedPrefs.edit().putInt("enemy_bar_count", 0).apply()
+            }
             observeGeneralGameplay(text, torchSignals, objects.size)
-            val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text })
-            updateHighlights(ocrLines, bitmap.width, bitmap.height, teachCandidate)
+            val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text }, enemyBars)
+            updateHighlights(ocrLines, bitmap.width, bitmap.height, teachCandidate, enemyBars)
             if (teachCandidate != null) askTeachQuestion(teachCandidate.first, teachCandidate.second)
             // Keep detailed OCR/object data internal; never dump raw screen text into the app UI.
             sendStatus("Watching screen · learning locally")
@@ -245,6 +255,64 @@ class VisualRecognitionService : Service() {
         return cues
     }
 
+    /**
+     * Finds horizontal red bar-like regions in the gameplay area. These are only
+     * candidate health bars: red effects, UI elements and scenery can look similar.
+     * The returned rectangles are deliberately small and are never treated as proof
+     * that a particular monster has been identified.
+     */
+    private fun detectEnemyHealthBars(bitmap: Bitmap): List<Rect> {
+        val x0 = (bitmap.width * 0.04f).toInt()
+        val x1 = (bitmap.width * 0.96f).toInt()
+        val y0 = (bitmap.height * 0.08f).toInt()
+        val y1 = (bitmap.height * 0.78f).toInt()
+        val stepX = maxOf(1, bitmap.width / 720)
+        val stepY = maxOf(1, bitmap.height / 405)
+        val minWidth = maxOf(12, bitmap.width / 90)
+        val regions = mutableListOf<Rect>()
+        var y = y0
+        while (y < y1) {
+            var start = -1
+            var x = x0
+            while (x <= x1) {
+                val isRed = if (x < x1) {
+                    val pixel = bitmap.getPixel(x, y)
+                    val r = Color.red(pixel)
+                    val g = Color.green(pixel)
+                    val b = Color.blue(pixel)
+                    r > 150 && r > g * 1.55 && r > b * 1.35 && g < 145
+                } else false
+                if (isRed && start < 0) start = x
+                if ((!isRed || x == x1) && start >= 0) {
+                    val end = x
+                    if (end - start >= minWidth) {
+                        val existing = regions.lastOrNull { rect ->
+                            y - rect.bottom <= stepY * 4 &&
+                                y >= rect.top &&
+                                end >= rect.left - stepX * 3 &&
+                                start <= rect.right + stepX * 3
+                        }
+                        if (existing != null) {
+                            existing.left = minOf(existing.left, start)
+                            existing.right = maxOf(existing.right, end)
+                            existing.bottom = y + stepY
+                        } else {
+                            regions.add(Rect(start, y, end, y + stepY))
+                        }
+                    }
+                    start = -1
+                }
+                x += stepX
+            }
+            y += stepY
+        }
+        return regions.filter { rect ->
+            rect.width() >= bitmap.width / 45 &&
+                rect.width() > rect.height() * 2.5f &&
+                rect.height() <= bitmap.height / 35
+        }.take(12)
+    }
+
     private fun countColourRuns(
         bitmap: Bitmap, left: Float, right: Float, top: Float, bottom: Float,
         match: (Int, Int, Int) -> Boolean
@@ -276,7 +344,7 @@ class VisualRecognitionService : Service() {
     }
 
 
-    private fun findTeachCandidate(bitmap: Bitmap, recognisedLines: List<String>): Pair<String, String>? {
+    private fun findTeachCandidate(bitmap: Bitmap, recognisedLines: List<String>, enemyBars: List<Rect>): Pair<String, String>? {
         val joined = recognisedLines.joinToString(" ").lowercase()
         val lootNames = listOf("bud rod", "rogue outerwear", "herbalist's footguards", "tortoiseshell amulet")
         val foundLoot = lootNames.filter { joined.contains(it) }
@@ -287,10 +355,7 @@ class VisualRecognitionService : Service() {
         val enemyNames = listOf("agito vanguard", "lean the chosen")
         val foundEnemies = enemyNames.filter { joined.contains(it) }
         if (foundEnemies.isNotEmpty()) return "enemy" to "I can read ${foundEnemies.joinToString(", ")} during combat. Is this an enemy?"
-        val redBars = countColourRuns(bitmap, 0.22f, 0.78f, 0.12f, 0.78f) { r, g, b ->
-            r > 145 && r > g * 1.45 && r > b * 1.25 && g < 150
-        }
-        if (redBars >= 2) return "enemy" to "I see red health-bar shapes in the play area. Do these indicate enemies?"
+        if (enemyBars.isNotEmpty()) return "enemy" to "I found ${enemyBars.size} red horizontal bar-like shapes. They might be enemy health bars. Are they?"
         val purplePixels = countMatchingPixels(bitmap, 0.76f, 0.98f, 0.55f, 0.86f) { r, g, b ->
             r > 75 && b > 125 && b > g * 1.25 && r > g * 1.15
         }
@@ -328,7 +393,8 @@ class VisualRecognitionService : Service() {
     // Clear all highlights when there is no active teaching candidate.
     private fun updateHighlights(
         lines: List<Text.Line>, sourceWidth: Int, sourceHeight: Int,
-        candidate: Pair<String, String>?
+        candidate: Pair<String, String>?,
+        enemyBars: List<Rect>
     ) {
         val screen = Point()
         @Suppress("DEPRECATION")
@@ -353,6 +419,7 @@ class VisualRecognitionService : Service() {
             // Never draw a guessed screen-sized rectangle. If we cannot locate the exact
             // text cue, leave the screen clear rather than highlighting a large region.
             matched.mapNotNullTo(targetBoxes) { it.boundingBox?.let(::Rect) }
+            if (key == "enemy") targetBoxes.addAll(enemyBars.map(::Rect))
         }
 
         mainHandler.post {
