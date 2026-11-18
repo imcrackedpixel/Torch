@@ -131,6 +131,16 @@ class OverlayService : Service() {
         status=TextView(this).apply { text="Tap bubbles to enable · drag to move"; setTextColor(Color.WHITE); textSize=12f }
         panel.addView(status)
         panel.addView(Button(this).apply {
+            text = "SHOW LEARNING BRAIN"
+            setOnClickListener {
+                val brain = getSharedPreferences("live_teaching", MODE_PRIVATE)
+                    .getString("brain_summary", "") ?: ""
+                status?.text = if (brain.isBlank()) {
+                    "Learning brain is waiting for live screen recognition"
+                } else brain
+            }
+        })
+        panel.addView(Button(this).apply {
             text = "START ACTION RECORDING"
             setOnClickListener {
                 recording = !recording
