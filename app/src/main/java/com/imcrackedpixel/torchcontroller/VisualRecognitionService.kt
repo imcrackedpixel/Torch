@@ -388,7 +388,14 @@ class VisualRecognitionService : Service() {
 
             val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(14, 12, 14, 12); setBackgroundColor(0xF0222932.toInt()) }
             panel.addView(TextView(this).apply { text = "Torch live learning"; textSize = 16f; setTextColor(Color.WHITE) })
-            val question = TextView(this).apply { text = "Watching gameplay. I'll ask when I spot something to learn."; textSize = 14f; setTextColor(Color.WHITE); setPadding(0, 10, 0, 10) }
+            val question = TextView(this).apply {
+                text = "Watching gameplay. I'll ask a short question when I notice a change."
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                maxLines = 3
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, 8, 0, 8)
+            }
             teachQuestion = question
             panel.addView(question)
             val answer = EditText(this).apply {
@@ -400,8 +407,19 @@ class VisualRecognitionService : Service() {
             }
             answerField = answer
             panel.addView(answer)
+            val quickAnswers = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            listOf("Moving", "Fighting", "Looting", "Menu / quest", "Other").forEach { choice ->
+                quickAnswers.addView(Button(this).apply {
+                    text = choice
+                    textSize = 10f
+                    minWidth = 0
+                    setPadding(3, 4, 3, 4)
+                    setOnClickListener { saveQuickExplanation(choice) }
+                }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            panel.addView(quickAnswers)
             panel.addView(Button(this).apply {
-                text = "SAVE EXPLANATION"
+                text = "SAVE MY EXPLANATION"
                 setOnClickListener { saveGeneralExplanation() }
             })
             val answers = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -410,11 +428,11 @@ class VisualRecognitionService : Service() {
             answers.addView(Button(this).apply { text = "LATER"; setOnClickListener { teachPanel?.visibility = android.view.View.GONE } }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             panel.addView(answers)
             val panelParams = WindowManager.LayoutParams(
-                (resources.displayMetrics.widthPixels * 0.88f).toInt(), WindowManager.LayoutParams.WRAP_CONTENT,
+                (resources.displayMetrics.widthPixels * 0.94f).toInt(), (resources.displayMetrics.density * 300f).toInt(),
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
-            ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = 145 }
+            ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = (resources.displayMetrics.density * 72f).toInt() }
             overlayManager?.addView(panel, panelParams); teachPanel = panel
             panel.visibility = android.view.View.GONE
         } catch (e: Exception) { sendStatus("Teach AI overlay could not open: ${e.message}") }
@@ -429,10 +447,11 @@ class VisualRecognitionService : Service() {
         val changed = current != lastScreenText
         if (changed && now - lastGeneralQuestionAt > 15000L) {
             val before = lastScreenText
+            // Keep OCR details in local notes, but never show a raw transcript in the gameplay panel.
             currentObservation = if (before.isBlank()) {
-                "I can read this screen: " + current
+                "First gameplay screen observed."
             } else {
-                "The screen changed. Previous screen: " + before + ". Current screen: " + current
+                "Gameplay screen changed since the previous observation."
             }
             saveGameplayNote("OBSERVATION: " + currentObservation)
             generalQuestionNumber += 1
@@ -441,8 +460,7 @@ class VisualRecognitionService : Service() {
                 activeQuestionKey = questionKey
                 askedThisSession.add(questionKey)
                 mainHandler.post {
-                    teachQuestion?.text = "I'm learning your whole gameplay, not just enemies or loot. " +
-                        currentObservation + "\nWhat were you doing, and what does this change mean?"
+                    teachQuestion?.text = "I noticed the screen changed. What were you doing just now?"
                     answerField?.setText("")
                     teachPanel?.visibility = android.view.View.VISIBLE
                 }
@@ -458,6 +476,11 @@ class VisualRecognitionService : Service() {
         val entry = System.currentTimeMillis().toString() + " | " + note.replace("\\n", " ").take(1200)
         val notes = (old.split("\\n").filter { it.isNotBlank() } + entry).takeLast(150)
         learnedPrefs.edit().putString(prefsKey, notes.joinToString("\\n")).apply()
+    }
+
+    private fun saveQuickExplanation(choice: String) {
+        answerField?.setText(choice)
+        saveGeneralExplanation()
     }
 
     private fun saveGeneralExplanation() {
