@@ -27,3 +27,5 @@ jobs:
 # Rebuild on live-teaching revisions
 
 # Rebuild after compact live-screen status UI fix.
+
+# Build after pass-through highlight overlay update.
