@@ -25,6 +25,7 @@ import android.view.WindowManager
 import android.view.Gravity
 import android.provider.Settings
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.google.android.gms.tasks.Tasks
@@ -52,6 +53,11 @@ class VisualRecognitionService : Service() {
     private var teachQuestion: TextView? = null
     private var overlayManager: WindowManager? = null
     private var activeQuestionKey: String? = null
+    private var answerField: EditText? = null
+    private var lastScreenText: String = ""
+    private var lastGeneralQuestionAt: Long = 0L
+    private var generalQuestionNumber: Int = 0
+    private var currentObservation: String = ""
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private val objectDetector by lazy {
         val options = ObjectDetectorOptions.Builder()
@@ -151,6 +157,7 @@ class VisualRecognitionService : Service() {
             val text = ocrLines.map { it.text.trim() }.take(16)
             val objects = if (objectTask.isSuccessful) objectTask.result else emptyList()
             val torchSignals = analyseTorchlight(bitmap, ocrLines.map { it.text })
+            observeGeneralGameplay(text)
             val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text })
             if (teachCandidate != null) askTeachQuestion(teachCandidate.first, teachCandidate.second)
             val objectLines = objects.take(8).mapIndexed { index, item ->
@@ -319,6 +326,19 @@ class VisualRecognitionService : Service() {
             val question = TextView(this).apply { text = "Watching gameplay. I'll ask when I spot something to learn."; textSize = 14f; setTextColor(Color.WHITE); setPadding(0, 10, 0, 10) }
             teachQuestion = question
             panel.addView(question)
+            val answer = EditText(this).apply {
+                hint = "What were you doing? What should I learn?"
+                setTextColor(Color.WHITE)
+                setHintTextColor(0xFFBBBBBB.toInt())
+                minLines = 2
+                maxLines = 3
+            }
+            answerField = answer
+            panel.addView(answer)
+            panel.addView(Button(this).apply {
+                text = "SAVE EXPLANATION"
+                setOnClickListener { saveGeneralExplanation() }
+            })
             val answers = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             answers.addView(Button(this).apply { text = "YES"; setOnClickListener { answerTeachQuestion(true) } }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             answers.addView(Button(this).apply { text = "NO"; setOnClickListener { answerTeachQuestion(false) } }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -333,6 +353,61 @@ class VisualRecognitionService : Service() {
             overlayManager?.addView(panel, panelParams); teachPanel = panel
             panel.visibility = android.view.View.GONE
         } catch (e: Exception) { sendStatus("Teach AI overlay could not open: ${e.message}") }
+    }
+
+
+    // General-purpose observation: compare successive OCR snapshots, not just known game categories.
+    private fun observeGeneralGameplay(lines: List<String>) {
+        val current = lines.joinToString(" | ").take(900)
+        if (current.isBlank()) return
+        val now = System.currentTimeMillis()
+        val changed = current != lastScreenText
+        if (changed && now - lastGeneralQuestionAt > 15000L) {
+            val before = lastScreenText
+            currentObservation = if (before.isBlank()) {
+                "I can read this screen: " + current
+            } else {
+                "The screen changed. Previous screen: " + before + ". Current screen: " + current
+            }
+            saveGameplayNote("OBSERVATION: " + currentObservation)
+            generalQuestionNumber += 1
+            val questionKey = "general_gameplay_" + generalQuestionNumber
+            if (activeQuestionKey == null) {
+                activeQuestionKey = questionKey
+                askedThisSession.add(questionKey)
+                mainHandler.post {
+                    teachQuestion?.text = "I'm learning your whole gameplay, not just enemies or loot. " +
+                        currentObservation + "\nWhat were you doing, and what does this change mean?"
+                    answerField?.setText("")
+                    teachPanel?.visibility = android.view.View.VISIBLE
+                }
+            }
+            lastGeneralQuestionAt = now
+        }
+        lastScreenText = current
+    }
+
+    private fun saveGameplayNote(note: String) {
+        val prefsKey = "whole_gameplay_notes"
+        val old = learnedPrefs.getString(prefsKey, "") ?: ""
+        val entry = System.currentTimeMillis().toString() + " | " + note.replace("\\n", " ").take(1200)
+        val notes = (old.split("\\n").filter { it.isNotBlank() } + entry).takeLast(150)
+        learnedPrefs.edit().putString(prefsKey, notes.joinToString("\\n")).apply()
+    }
+
+    private fun saveGeneralExplanation() {
+        val explanation = answerField?.text?.toString()?.trim().orEmpty()
+        if (explanation.isBlank()) {
+            sendStatus("Type a short explanation so I can learn what happened.")
+            return
+        }
+        val note = "PLAYER EXPLANATION: " + explanation + " | CONTEXT: " + currentObservation
+        saveGameplayNote(note)
+        activeQuestionKey?.let { learnedPrefs.edit().putString("learned_" + it, note).apply() }
+        activeQuestionKey = null
+        currentObservation = ""
+        teachPanel?.visibility = android.view.View.GONE
+        sendStatus("Saved your gameplay explanation locally on this phone.")
     }
 
     private fun answerTeachQuestion(isYes: Boolean) {
