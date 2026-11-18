@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [iris-controller]
-    paths: ['app/**', '*.gradle.kts', 'settings.gradle.kts', '.github/workflows/build-android.yml']
+    paths: ['app/**', '*.gradle.kts', 'gradle.properties', 'settings.gradle.kts', '.github/workflows/build-android.yml']
 jobs:
   build:
     runs-on: ubuntu-latest
