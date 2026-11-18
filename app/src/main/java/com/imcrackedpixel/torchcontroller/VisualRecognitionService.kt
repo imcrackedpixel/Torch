@@ -13,7 +13,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Color
 import android.graphics.PixelFormat
-import android.util.Point
+import android.graphics.Point
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.Image
@@ -323,7 +323,7 @@ class VisualRecognitionService : Service() {
 
     // Transparent, non-touchable rectangles mark the OCR text currently being read.
     private fun updateHighlights(lines: List<Text.Line>, sourceWidth: Int, sourceHeight: Int) {
-        val screen = android.util.Point()
+        val screen = Point()
         @Suppress("DEPRECATION")
         (getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay.getRealSize(screen)
         val boxes = lines.mapNotNull { line ->
