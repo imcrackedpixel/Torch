@@ -34,7 +34,7 @@ class MainActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
         root.addView(TextView(this).apply {
-            text = "TORCH CONTROLLER\n\nVISUAL RECOGNITION\nStart screen capture, then open Torchlight. Torch reads visible text and detects general objects on-device. This is not yet trained to identify specific Torchlight enemies or loot. Nothing is uploaded and this feature does not perform game taps."
+            text = "TORCH CONTROLLER\n\nLIVE TEACH AI\nStart screen capture, allow display-over-other-apps, then open Torchlight. A floating TEACH AI panel watches gameplay and asks questions when it spots possible enemies or loot. Your YES/NO answers are saved on this device. Nothing is uploaded and learning does not perform game taps."
             textSize = 17f
         })
         status = TextView(this).apply {
@@ -44,11 +44,15 @@ class MainActivity : Activity() {
         }
         root.addView(status)
         root.addView(Button(this).apply {
-            text = "Start visual recognition"
+            text = "Start Live Teach AI"
             setOnClickListener {
                 val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 startActivityForResult(manager.createScreenCaptureIntent(), captureRequest)
             }
+        })
+        root.addView(Button(this).apply {
+            text = "Allow display over other apps (needed for live questions)"
+            setOnClickListener { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))) }
         })
         root.addView(Button(this).apply {
             text = "Stop screen recognition"

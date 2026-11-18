@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -18,8 +19,14 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.WindowManager
+import android.view.Gravity
+import android.provider.Settings
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.objects.DetectedObject
@@ -37,6 +44,14 @@ class VisualRecognitionService : Service() {
     private var worker: HandlerThread? = null
     private var handler: Handler? = null
     private val processing = AtomicBoolean(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val learnedPrefs by lazy { getSharedPreferences("live_teaching", MODE_PRIVATE) }
+    private val askedThisSession = mutableSetOf<String>()
+    private var teachPill: TextView? = null
+    private var teachPanel: LinearLayout? = null
+    private var teachQuestion: TextView? = null
+    private var overlayManager: WindowManager? = null
+    private var activeQuestionKey: String? = null
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private val objectDetector by lazy {
         val options = ObjectDetectorOptions.Builder()
@@ -104,7 +119,8 @@ class VisualRecognitionService : Service() {
                     stopSelf()
                 }
             }, handler)
-            sendStatus("Watching screen. On-device text and general-object detection are active. Nothing is uploaded.")
+            sendStatus("Watching screen. Live Teach AI is ready. Nothing is uploaded.")
+            mainHandler.post { buildTeachOverlay() }
             handler?.post(captureLoop)
         } catch (e: Exception) {
             sendStatus("Could not start capture: ${e.message}")
@@ -135,6 +151,8 @@ class VisualRecognitionService : Service() {
             val text = ocrLines.map { it.text.trim() }.take(16)
             val objects = if (objectTask.isSuccessful) objectTask.result else emptyList()
             val torchSignals = analyseTorchlight(bitmap, ocrLines.map { it.text })
+            val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text })
+            if (teachCandidate != null) askTeachQuestion(teachCandidate.first, teachCandidate.second)
             val objectLines = objects.take(8).mapIndexed { index, item ->
                 val label = item.labels.maxByOrNull { it.confidence }?.let {
                     "${it.text} ${(it.confidence * 100).toInt()}%"
@@ -220,6 +238,88 @@ class VisualRecognitionService : Service() {
         return matchingRows
     }
 
+
+    private fun findTeachCandidate(bitmap: Bitmap, recognisedLines: List<String>): Pair<String, String>? {
+        val joined = recognisedLines.joinToString(" ").lowercase()
+        val lootNames = listOf("bud rod", "rogue outerwear", "herbalist's footguards", "tortoiseshell amulet")
+        val foundLoot = lootNames.filter { joined.contains(it) }
+        if (foundLoot.isNotEmpty()) return "loot" to "I can read item names (${foundLoot.joinToString(", ")}). Are these dropped loot items?"
+        val enemyNames = listOf("agito vanguard", "lean the chosen")
+        val foundEnemies = enemyNames.filter { joined.contains(it) }
+        if (foundEnemies.isNotEmpty()) return "enemy" to "I can read ${foundEnemies.joinToString(", ")} during combat. Is this an enemy?"
+        val redBars = countColourRuns(bitmap, 0.22f, 0.78f, 0.12f, 0.78f) { r, g, b ->
+            r > 145 && r > g * 1.45 && r > b * 1.25 && g < 150
+        }
+        if (redBars >= 2) return "enemy" to "I see red health-bar shapes in the play area. Do these indicate enemies?"
+        return null
+    }
+
+    private fun askTeachQuestion(key: String, question: String) {
+        mainHandler.post {
+            if (learnedPrefs.contains(key) || askedThisSession.contains(key)) return@post
+            askedThisSession.add(key)
+            activeQuestionKey = key
+            if (teachQuestion != null) {
+                teachQuestion?.text = question
+                teachPanel?.visibility = android.view.View.VISIBLE
+            } else sendStatus("Teach AI: $question (allow display-over-other-apps to answer while playing)")
+        }
+    }
+
+    private fun buildTeachOverlay() {
+        if (!Settings.canDrawOverlays(this) || teachPill != null) return
+        try {
+            overlayManager = getSystemService(WINDOW_SERVICE) as WindowManager
+            val pill = TextView(this).apply {
+                text = "TEACH AI"; textSize = 13f; setTextColor(Color.WHITE)
+                setPadding(18, 12, 18, 12); setBackgroundColor(0xEE263746.toInt())
+                setOnClickListener {
+                    teachPanel?.let { p -> p.visibility = if (p.visibility == android.view.View.VISIBLE) android.view.View.GONE else android.view.View.VISIBLE }
+                }
+            }
+            val pillParams = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = 90 }
+            overlayManager?.addView(pill, pillParams); teachPill = pill
+
+            val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(14, 12, 14, 12); setBackgroundColor(0xF0222932.toInt()) }
+            panel.addView(TextView(this).apply { text = "Torch live learning"; textSize = 16f; setTextColor(Color.WHITE) })
+            val question = TextView(this).apply { text = "Watching gameplay. I'll ask when I spot something to learn."; textSize = 14f; setTextColor(Color.WHITE); setPadding(0, 10, 0, 10) }
+            teachQuestion = question
+            panel.addView(question)
+            val answers = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            answers.addView(Button(this).apply { text = "YES"; setOnClickListener { answerTeachQuestion(true) } }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            answers.addView(Button(this).apply { text = "NO"; setOnClickListener { answerTeachQuestion(false) } }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            answers.addView(Button(this).apply { text = "LATER"; setOnClickListener { teachPanel?.visibility = android.view.View.GONE } }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            panel.addView(answers)
+            val panelParams = WindowManager.LayoutParams(
+                (resources.displayMetrics.widthPixels * 0.88f).toInt(), WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = 145 }
+            overlayManager?.addView(panel, panelParams); teachPanel = panel
+            panel.visibility = android.view.View.GONE
+        } catch (e: Exception) { sendStatus("Teach AI overlay could not open: ${e.message}") }
+    }
+
+    private fun answerTeachQuestion(isYes: Boolean) {
+        val key = activeQuestionKey ?: return
+        learnedPrefs.edit().putBoolean(key, isYes).apply()
+        teachPanel?.visibility = android.view.View.GONE
+        sendStatus("Learned: $key = ${if (isYes) "YES" else "NO"}. Saved on this device.")
+        activeQuestionKey = null
+    }
+
+    private fun removeTeachOverlay() {
+        try { teachPill?.let { overlayManager?.removeView(it) } } catch (_: Exception) {}
+        try { teachPanel?.let { overlayManager?.removeView(it) } } catch (_: Exception) {}
+        teachPill = null; teachPanel = null; teachQuestion = null; overlayManager = null
+    }
+
     private fun imageToBitmap(image: Image): Bitmap {
         val plane = image.planes[0]
         val buffer = plane.buffer
@@ -255,6 +355,7 @@ class VisualRecognitionService : Service() {
 
     private fun stopCapture() {
         handler?.removeCallbacksAndMessages(null)
+        mainHandler.post { removeTeachOverlay() }
         try { virtualDisplay?.release() } catch (_: Exception) {}
         virtualDisplay = null
         try { reader?.close() } catch (_: Exception) {}
