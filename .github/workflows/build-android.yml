@@ -1,9 +1,9 @@
-name: Build Torch Controller APK # live teaching update
+name: Build Torch AI and Torchlight Bot APKs
 on:
   workflow_dispatch:
   push:
     branches: [iris-controller]
-    paths: ['app/**', '*.gradle.kts', 'gradle.properties', 'settings.gradle.kts', '.github/workflows/build-android.yml']
+    paths: ['app/**', 'torchlight-bot/**', '*.gradle.kts', 'gradle.properties', 'settings.gradle.kts', '.github/workflows/build-android.yml']
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,16 +16,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build debug APK
-        run: gradle assembleDebug
-      - name: Upload APK
+      - name: Build both Android APKs
+        run: gradle :app:assembleDebug :torchlight-bot:assembleDebug
+      - name: Upload Torch AI APK
         uses: actions/upload-artifact@v4
         with:
           name: torch-controller-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-
-# Rebuild on live-teaching revisions
-
-# Rebuild after compact live-screen status UI fix.
-
-# Build after pass-through highlight overlay update.
+      - name: Upload Torchlight Bot APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: torchlight-bot-debug
+          path: torchlight-bot/build/outputs/apk/debug/torchlight-bot-debug.apk
