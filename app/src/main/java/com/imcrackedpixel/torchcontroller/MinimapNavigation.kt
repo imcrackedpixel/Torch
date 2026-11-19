@@ -42,8 +42,8 @@ object MinimapNavigation {
         val edit = p.edit().putLong("last_scan_at", now)
         var note = "Minimap scanned"
         if (bn >= 3) {
-            val px = (bx / bn / bitmap.width).toFloat().coerceIn(0f, 1f)
-            val py = (by / bn / bitmap.height).toFloat().coerceIn(0f, 1f)
+            val px = ((bx / bn - left) / (right - left)).toFloat().coerceIn(0f, 1f)
+            val py = ((by / bn - top) / (bottom - top)).toFloat().coerceIn(0f, 1f)
             edit.putFloat("player_x", px).putFloat("player_y", py).putLong("player_seen_at", now)
             val key = "${((px * GRID).toInt()).coerceIn(0, GRID - 1)},${((py * GRID).toInt()).coerceIn(0, GRID - 1)}"
             val cells = safeObject(p.getString("visited_cells", "{}"))
@@ -54,8 +54,8 @@ object MinimapNavigation {
             note += " · player marker candidate"
         }
         if (yn >= 3) {
-            edit.putFloat("target_x", (yx / yn / bitmap.width).toFloat())
-                .putFloat("target_y", (yy / yn / bitmap.height).toFloat()).putLong("target_seen_at", now)
+            edit.putFloat("target_x", ((yx / yn - left) / (right - left)).toFloat())
+                .putFloat("target_y", ((yy / yn - top) / (bottom - top)).toFloat()).putLong("target_seen_at", now)
             note += " · yellow target candidate"
         }
         edit.apply()
