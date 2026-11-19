@@ -72,7 +72,6 @@ class OverlayService : Service() {
     private val enabled = BooleanArray(4)
     private val cooldownChoices = longArrayOf(250, 500, 750, 1000, 1500, 2000, 3000, 5000)
     private val prefs by lazy { getSharedPreferences("tap_positions", MODE_PRIVATE) }
-    private val safetyStop = Runnable { if (running) stopAutomation("5-minute safety limit reached") }
     private val loops = Array(4) { index -> object : Runnable {
         override fun run() {
             if (!running || !enabled[index]) return
@@ -180,7 +179,7 @@ class OverlayService : Service() {
         })
         panel.addView(Button(this).apply { text="START ALL"; setOnClickListener {
             if(TouchService.instance==null){status?.text="Enable Accessibility first";return@setOnClickListener}
-            if(!running){running=true; for(i in 0..3) if(enabled[i]) handler.post(loops[i]); handler.removeCallbacks(safetyStop); handler.postDelayed(safetyStop,300000); updateStatus()}
+            if(!running){running=true; for(i in 0..3) if(enabled[i]) handler.post(loops[i]); updateStatus()}
         }})
         panel.addView(Button(this).apply { text="STOP ALL"; setOnClickListener { stopAutomation("Stopped") } })
         panel.addView(Button(this).apply { text="CLOSE"; setOnClickListener { stopSelf() } })
@@ -320,7 +319,7 @@ class OverlayService : Service() {
     }
 
     private fun updateStatus(){ status?.text=if(running) "Running · "+enabled.count{it}+" active · STOP ALL" else "Tap bubbles to enable · drag to move" }
-    private fun stopAutomation(message:String){stopAiPlay(message);running=false;for(i in 0..3)handler.removeCallbacks(loops[i]);handler.removeCallbacks(safetyStop);stopReplay();status?.text=message}
+    private fun stopAutomation(message:String){stopAiPlay(message);running=false;for(i in 0..3)handler.removeCallbacks(loops[i]);stopReplay();status?.text=message}
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int)=START_STICKY
     override fun onDestroy(){recording=false;stopAutomation("Controller closed");for(b in taps)if(b?.isAttachedToWindow==true)wm.removeView(b);if(::panel.isInitialized&&panel.isAttachedToWindow)wm.removeView(panel);super.onDestroy()}
     override fun onBind(intent:Intent?):IBinder?=null
