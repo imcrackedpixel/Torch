@@ -83,10 +83,12 @@ object EndgameGameBrain {
 
         p.edit().putInt("decision_count", count + 1).putInt("steps_since_interaction", p.getInt("steps_since_interaction", 0) + 1).apply()
         val mapDirection = MinimapNavigation.suggestedDirection(c)
-        val chosen = mapDirection ?: direction
+        val exploreDirection = if (mapDirection == null) MinimapNavigation.explorationDirection(c) else null
+        val chosen = mapDirection ?: exploreDirection ?: direction
         val reason = when {
-            mapDirection != null -> "Follow minimap target bearing · verify movement after the gesture"
-            noProgress >= 5 -> "Repeated no-progress evidence · test a different route"
+            mapDirection != null -> "Follow detected minimap target bearing · verify movement after the gesture"
+            exploreDirection != null -> "Explore the least-visited adjacent minimap cell · check whether the marker moves"
+            noProgress >= 5 -> "Repeated no-progress evidence · change route and test a different direction"
             mode == "COMBAT" -> "Combat detected · reposition between skill tests"
             else -> profile + " · explore a less-tested route and watch for objective changes"
         }
