@@ -100,6 +100,41 @@ class MainActivity : Activity() {
             setOnClickListener { startActivity(Intent(this@MainActivity, ChatActivity::class.java)) }
         }, LinearLayout.LayoutParams(-1, -2))
         content.addView(Button(this).apply {
+            text = "Connect free cloud vision AI"
+            setOnClickListener {
+                val prefs = getSharedPreferences("cloud_ai_settings", MODE_PRIVATE)
+                val keyField = android.widget.EditText(this@MainActivity).apply {
+                    hint = "Groq API key (gsk_...)"
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    setText(prefs.getString("groq_api_key", "") ?: "")
+                }
+                val info = TextView(this@MainActivity).apply {
+                    text = "Torch sends a compressed gameplay screenshot about every 30 seconds while recognition is running. The cloud model suggests a goal and next step; Torch's local controller still decides and performs touches. Create a free key at console.groq.com. Never share your key."
+                    textSize = 13f
+                    setPadding(0, 0, 0, 12)
+                }
+                val layout = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(22, 12, 22, 4)
+                    addView(info)
+                    addView(keyField)
+                }
+                android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Groq vision connection")
+                    .setView(layout)
+                    .setPositiveButton("Save securely on this phone") { _, _ ->
+                        prefs.edit().putString("groq_api_key", keyField.text.toString().trim()).apply()
+                        status.text = if (keyField.text.toString().isBlank()) "Cloud vision disabled. Local AI still works." else "Groq key saved on this phone. Start screen recognition; cloud analysis will run periodically."
+                    }
+                    .setNeutralButton("Disable cloud AI") { _, _ ->
+                        prefs.edit().remove("groq_api_key").remove("latest_advice").apply()
+                        status.text = "Cloud vision disabled. Local AI still works."
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }, LinearLayout.LayoutParams(-1, -2))
+        content.addView(Button(this).apply {
             text = "View what AI has learned"
             setOnClickListener {
                 val report = GameUnderstandingEngine.report(this@MainActivity) + "\n\n" +
