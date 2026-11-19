@@ -65,7 +65,7 @@ class OverlayService : Service() {
             val beforeObservation = live.getString("last_observation", "") ?: ""
             val beforeState = state
             val observedText = live.getString("last_observation", "") ?: ""
-            val decision = TorchGameAgent.plan(this, phase, state, observedText, live.getInt("enemy_bar_count", -1), available)
+            val decision = TorchGameAgent.plan(this@OverlayService, phase, state, observedText, live.getInt("enemy_bar_count", -1), available)
             if (decision.action == "WAIT") {
                 status?.text = "AI holding · " + decision.reason
                 handler.postDelayed(this, 1800L)
@@ -127,7 +127,7 @@ class OverlayService : Service() {
             )
             val dirIndex = decision.direction
             val direction = directions[dirIndex]
-            val moveDuration = TorchGameAgent.movementDuration(this)
+            val moveDuration = TorchGameAgent.movementDuration(this@OverlayService)
             svc.moveJoystick(anchor.x + 32f * resources.displayMetrics.density, anchor.y + 32f * resources.displayMetrics.density, direction.first * resources.displayMetrics.density, direction.second * resources.displayMetrics.density, moveDuration)
             aiWaitingForResult = true
             status?.text = "AI exploring · movement direction " + (dirIndex + 1) + "/8"
@@ -136,7 +136,7 @@ class OverlayService : Service() {
                 val after = getSharedPreferences("live_teaching", MODE_PRIVATE)
                 val afterObservation = after.getString("last_observation", "") ?: ""
                 recordMovementOutcome(dirIndex, beforeState, after.getString("last_state", "") ?: "", beforeObservation, afterObservation)
-                TorchGameAgent.recordMovement(this, dirIndex, beforeObservation != afterObservation)
+                TorchGameAgent.recordMovement(this@OverlayService, dirIndex, beforeObservation != afterObservation)
                 aiWaitingForResult = false
                 handler.postDelayed(aiPlayLoop, 450L)
             }, 1900L)
