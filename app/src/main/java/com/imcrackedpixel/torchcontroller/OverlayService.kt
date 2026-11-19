@@ -227,6 +227,7 @@ class OverlayService : Service() {
             x=prefs.getInt("menu_x",(8*density).roundToInt())
             y=prefs.getInt("menu_y",(48*density).roundToInt())
         }
+        val content = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(2,4,2,4) }
         val header = LinearLayout(this).apply {
             orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL
             setBackgroundColor(0xFF303943.toInt()); setPadding(6,2,2,2)
@@ -235,11 +236,10 @@ class OverlayService : Service() {
         val collapse = Button(this).apply { text="−"; textSize=18f; isAllCaps=false; setTextColor(Color.WHITE); setBackgroundColor(0xFF46515D.toInt()); minWidth=(42*density).roundToInt() }
         header.addView(title, LinearLayout.LayoutParams(0,(42*density).roundToInt(),1f))
         header.addView(collapse, LinearLayout.LayoutParams((42*density).roundToInt(),(42*density).roundToInt()))
-        content.addView(header)
+        panel.addView(header)
         val scroll = ScrollView(this).apply { isFillViewport=false; isVerticalScrollBarEnabled=true; overScrollMode=ScrollView.OVER_SCROLL_IF_CONTENT_SCROLLS }
-        val content = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(2,4,2,4) }
         scroll.addView(content)
-        content.addView(scroll, LinearLayout.LayoutParams(-1,(resources.displayMetrics.heightPixels*0.52f).roundToInt()))
+        panel.addView(scroll, LinearLayout.LayoutParams(-1,(resources.displayMetrics.heightPixels*0.52f).roundToInt()))
         collapse.setOnClickListener {
             val hidden = scroll.visibility == android.view.View.VISIBLE
             scroll.visibility = if (hidden) android.view.View.GONE else android.view.View.VISIBLE
