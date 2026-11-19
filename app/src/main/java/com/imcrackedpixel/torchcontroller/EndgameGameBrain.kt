@@ -175,7 +175,7 @@ object EndgameGameBrain {
             " · recent experience samples: " + arr(p.getString("experience_replay", "[]")).length() +
             " · no-progress streak: " + p.getInt("no_progress", 0) +
             "\nLast decision: " + (p.getString("last_decision", "none") ?: "none") + " · " + (p.getString("last_reason", "waiting") ?: "waiting") +
-            "\nRewards favour minimap movement and candidate enemy-bar changes over OCR text changes. This is an offline heuristic learner, not a trained general intelligence."
+            "\n" + GameWorldModel.report(c) + "\nRewards favour minimap movement and candidate enemy-bar changes over OCR text changes. This is an offline heuristic learner, not a trained general intelligence."
     }
 
     private fun profileFor(text: String): String = when {
