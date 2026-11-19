@@ -32,7 +32,9 @@ object CloudGameAdvisor {
         }
         prefs.edit().putLong("last_request_at", now).apply()
         // Copy before returning: the capture service recycles its frame immediately.
-        val snapshot = Bitmap.createScaledBitmap(frame, minOf(frame.width, 960), (frame.height * (minOf(frame.width, 960).toFloat() / frame.width)).toInt().coerceAtLeast(1), true)
+        val scaled = Bitmap.createScaledBitmap(frame, minOf(frame.width, 960), (frame.height * (minOf(frame.width, 960).toFloat() / frame.width)).toInt().coerceAtLeast(1), true)
+        val snapshot = scaled.copy(Bitmap.Config.ARGB_8888, false)
+        if (scaled !== frame) scaled.recycle()
         Thread {
             var connection: HttpURLConnection? = null
             try {
