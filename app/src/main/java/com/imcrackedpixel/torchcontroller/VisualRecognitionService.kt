@@ -547,7 +547,6 @@ class VisualRecognitionService : Service() {
     // This is evidence tracking, not proof of enemy defeat or skill effectiveness.
     private fun observeGeneralGameplay(lines: List<String>, cues: List<String>, objectDetails: List<String>, screenWidth: Int, screenHeight: Int) {
         val current = lines.joinToString(" | ").take(900)
-        if (current.isBlank() && cues.isEmpty() && objectDetails.isEmpty()) return
         val understanding = GameUnderstandingEngine.observe(this, lines, cues, objectDetails, screenWidth, screenHeight)
         val summary = GameplayStateTracker.observe(this, lines, cues, objectDetails.size)
         val brain = TorchAiBrain.observe(this, lines, cues, objectDetails, screenWidth, screenHeight)
