@@ -68,7 +68,7 @@ class ChatActivity : Activity() {
             return "I don't have your character, skill levels, supports or tree imported yet. Tap RESEARCH SKILLS to search current Torchlight: Infinite skill and talent information. Verify the game version and each skill's own cooldown rules."
         }
         if (q.contains("play") || q.contains("attack") || q.contains("use t1") || q.contains("use t2")) {
-            return "Open the floating controller and choose AI PLAY (SUPERVISED 60 SEC). It cycles only the T buttons you enabled, and only while the screen classifier says POSSIBLE COMBAT. It cannot navigate or clear a map yet."
+            return "Open the floating controller, turn ON the skill buttons you want it to use, then press GO AI. It keeps running until you press STOP AI. It learns from limited visual evidence, but cannot reliably navigate or clear a map yet."
         }
         if (q.contains("stop")) return "Use STOP AI PLAY or STOP ALL on the floating controller to stop taps immediately."
         if (q.contains("notes")) return prefs.getString("player_notes", "").orEmpty().ifBlank { "No saved teaching notes yet. Start a message with 'remember …'." }
