@@ -132,7 +132,8 @@ class OverlayService : Service() {
                 }
             }
             val anchor = movementParams
-            if (anchor == null) { status?.text = "AI needs a movement anchor: drag M onto the game's joystick"; handler.postDelayed(this, 1600L); return }
+            if (anchor == null) { status?.text = "AI needs a movement anchor: drag M onto the centre of the game's joystick"; handler.postDelayed(this, 1600L); return }
+            val mapBefore = MinimapNavigation.snapshot(this@OverlayService)
             val directions = arrayOf(
                 Pair(0f, -42f), Pair(30f, -30f), Pair(42f, 0f), Pair(30f, 30f),
                 Pair(0f, 42f), Pair(-30f, 30f), Pair(-42f, 0f), Pair(-30f, -30f)
@@ -147,8 +148,15 @@ class OverlayService : Service() {
                 if (!aiPlaying) { aiWaitingForResult = false; return@postDelayed }
                 val after = getSharedPreferences("live_teaching", MODE_PRIVATE)
                 val afterObservation = after.getString("last_observation", "") ?: ""
-                recordMovementOutcome(dirIndex, beforeState, after.getString("last_state", "") ?: "", beforeObservation, afterObservation)
-                TorchGameAgent.recordMovement(this@OverlayService, dirIndex, beforeObservation != afterObservation)
+                val mapMoved = MinimapNavigation.didPlayerMove(this@OverlayService, mapBefore)
+                val movementChanged = mapMoved ?: (beforeObservation != afterObservation)
+                recordMovementOutcome(dirIndex, beforeState, after.getString("last_state", "") ?: "", beforeObservation, afterObservation, mapMoved)
+                TorchGameAgent.recordMovement(this@OverlayService, dirIndex, movementChanged)
+                status?.text = when (mapMoved) {
+                    true -> "AI moved · minimap position changed · testing next route"
+                    false -> "AI may be blocked · minimap position did not change · trying another direction"
+                    null -> "AI moved joystick · map marker unclear · testing another direction"
+                }
                 aiWaitingForResult = false
                 handler.postDelayed(aiPlayLoop, 450L)
             }, 1900L)
@@ -467,7 +475,7 @@ class OverlayService : Service() {
     private fun chooseMovementDirection(): Int =
         TorchAiBrain.chooseMovementDirection(this)
 
-    private fun recordMovementOutcome(direction: Int, beforeState: String, afterState: String, beforeText: String, afterText: String) {
+    private fun recordMovementOutcome(direction: Int, beforeState: String, afterState: String, beforeText: String, afterText: String, mapMoved: Boolean?) {
         try {
             val history = JSONArray(memoryPrefs.getString("movement_learning", "[]") ?: "[]")
             history.put(JSONObject().apply {
@@ -476,7 +484,12 @@ class OverlayService : Service() {
                 put("before_state", beforeState)
                 put("after_state", afterState)
                 put("screen_changed", beforeText != afterText)
-                put("evidence", if (beforeText != afterText) "screen OCR changed after movement" else "no OCR change detected")
+                put("minimap_position_changed", mapMoved)
+                put("evidence", when (mapMoved) {
+                    true -> "minimap player-marker candidate moved after joystick gesture"
+                    false -> "minimap player-marker candidate stayed in same position"
+                    null -> if (beforeText != afterText) "OCR changed; movement unconfirmed" else "no reliable movement marker or OCR change"
+                })
             })
             while (history.length() > 160) history.remove(0)
             memoryPrefs.edit().putString("movement_learning", history.toString()).apply()
@@ -490,8 +503,13 @@ class OverlayService : Service() {
         if (movementParams == null) { status?.text = "Movement anchor missing · restart controller"; return }
         stopAutomation("Pausing other automation for AI play")
         aiPlaying = true; aiWaitingForResult = false
-        movementAnchor?.let { try { wm.removeView(it) } catch (_: Exception) {} }
-        interactButton?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+        // These floating controls sit directly over the game's touch targets.
+        // Remove ALL of them while AI is active so injected accessibility gestures
+        // reach the real joystick and skill buttons underneath, not our overlay.
+        for (button in taps) button?.let { if (it.isAttachedToWindow) try { wm.removeView(it) } catch (_: Exception) {} }
+        movementAnchor?.let { if (it.isAttachedToWindow) try { wm.removeView(it) } catch (_: Exception) {} }
+        interactButton?.let { if (it.isAttachedToWindow) try { wm.removeView(it) } catch (_: Exception) {} }
+        status?.text = "AI GO · M must be positioned over the joystick centre before PLAY"
         updateAiToggle()
         status?.text = "AI GO · learning continuously · STOP AI to end"
         handler.post(aiPlayLoop)
@@ -500,6 +518,12 @@ class OverlayService : Service() {
     private fun stopAiPlay(message: String) {
         aiPlaying = false
         aiWaitingForResult = false
+        // Restore draggable setup controls only after injected gestures have stopped.
+        for (i in 0..3) {
+            val button = taps[i]
+            val lp = params[i]
+            if (button != null && lp != null && !button.isAttachedToWindow) try { wm.addView(button, lp) } catch (_: Exception) {}
+        }
         movementAnchor?.let { if (!it.isAttachedToWindow) try { wm.addView(it, movementParams) } catch (_: Exception) {} }
         interactButton?.let { if (!it.isAttachedToWindow) try { wm.addView(it, interactParams) } catch (_: Exception) {} }
         handler.removeCallbacks(aiPlayLoop)
