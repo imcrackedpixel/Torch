@@ -18,7 +18,9 @@ import android.widget.TextView
 
 class MainActivity : Activity() {
     private lateinit var status: TextView
-    private val captureRequest = 4102\n    private val exportRequest = 4103\n    private val importRequest = 4104
+    private val captureRequest = 4102
+    private val exportRequest = 4103
+    private val importRequest = 4104
 
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
