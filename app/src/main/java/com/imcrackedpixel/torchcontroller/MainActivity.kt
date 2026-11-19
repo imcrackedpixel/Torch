@@ -13,6 +13,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 
 class MainActivity : Activity() {
@@ -28,64 +29,80 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = LinearLayout(this).apply {
+        val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(22, 28, 22, 24)
+        }
+        content.addView(TextView(this).apply {
+            text = "TORCH AI"
+            textSize = 30f
+            setTextColor(0xFF17212B.toInt())
             gravity = Gravity.CENTER
-            setPadding(24, 24, 24, 24)
-        }
-        root.addView(TextView(this).apply {
-            text = "TORCH AI · 0.7.0\n\nStart Live Teach AI and approve screen capture. Enable gesture accessibility and display-over-other-apps, then show the floating controller. In your game, drag M onto the movement joystick, I onto the interaction button, and T1–T4 onto your skills. Press GO AI to let it observe, experiment and remember locally. Keep the game visible and the phone awake while testing. STOP AI ends autonomous actions. Recognition and progress estimates are experimental; nothing is uploaded."
-            textSize = 17f
         })
-        status = TextView(this).apply {
-            text = "Recognition is stopped."
+        content.addView(TextView(this).apply {
+            text = "Your game-learning assistant"
             textSize = 15f
-            maxLines = 2
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(0, 20, 0, 16)
-        }
-        root.addView(status)
-        root.addView(Button(this).apply {
-            text = "OPEN AI CHAT"
-            setOnClickListener { startActivity(Intent(this@MainActivity, ChatActivity::class.java)) }
+            gravity = Gravity.CENTER
+            setPadding(0, 4, 0, 22)
         })
-        root.addView(Button(this).apply {
-            text = "Start Live Teach AI"
+        content.addView(TextView(this).apply {
+            text = "QUICK START"
+            textSize = 13f
+            setPadding(0, 8, 0, 8)
+            setTextColor(0xFF526170.toInt())
+        })
+        content.addView(Button(this).apply {
+            text = "1 · SHOW AI ON / OFF BUTTON"
+            textSize = 15f
+            setOnClickListener {
+                if (Settings.canDrawOverlays(this@MainActivity)) {
+                    startForegroundService(Intent(this@MainActivity, OverlayService::class.java))
+                    status.text = "Floating AI switch shown. Open your game and use the switch."
+                } else {
+                    status.text = "Allow display over other apps, then tap this again."
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                }
+            }
+        }, LinearLayout.LayoutParams(-1, -2))
+        content.addView(Button(this).apply {
+            text = "2 · START SCREEN RECOGNITION"
+            textSize = 15f
             setOnClickListener {
                 val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 startActivityForResult(manager.createScreenCaptureIntent(), captureRequest)
             }
+        }, LinearLayout.LayoutParams(-1, -2))
+        status = TextView(this).apply {
+            text = "Not started yet. Allow the permissions below once, then use the floating AI switch."
+            textSize = 14f
+            setPadding(4, 18, 4, 18)
+        }
+        content.addView(status)
+        content.addView(TextView(this).apply {
+            text = "ONE-TIME PERMISSIONS"
+            textSize = 13f
+            setTextColor(0xFF526170.toInt())
+            setPadding(0, 8, 0, 8)
         })
-        root.addView(Button(this).apply {
-            text = "Allow display over other apps (needed for live questions)"
+        content.addView(Button(this).apply {
+            text = "Allow floating button"
             setOnClickListener { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))) }
-        })
-        root.addView(Button(this).apply {
-            text = "Stop screen recognition"
-            setOnClickListener {
-                stopService(Intent(this@MainActivity, VisualRecognitionService::class.java))
-                status.text = "Recognition stopped."
-            }
-        })
-        root.addView(Button(this).apply {
+        }, LinearLayout.LayoutParams(-1, -2))
+        content.addView(Button(this).apply {
             text = "Enable gesture accessibility"
             setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        }, LinearLayout.LayoutParams(-1, -2))
+        content.addView(Button(this).apply {
+            text = "Open AI chat"
+            setOnClickListener { startActivity(Intent(this@MainActivity, ChatActivity::class.java)) }
+        }, LinearLayout.LayoutParams(-1, -2))
+        content.addView(TextView(this).apply {
+            text = "After setup, use the floating AI ON switch. Drag M onto the game joystick, I onto its start/interact control, and T1–T4 onto skills. The AI switch is always the emergency OFF control. Keep the game visible and the phone awake."
+            textSize = 13f
+            setPadding(4, 18, 4, 8)
         })
-        root.addView(Button(this).apply {
-            text = "Show four-button controller"
-            setOnClickListener {
-                if (Settings.canDrawOverlays(this@MainActivity)) {
-                    startForegroundService(Intent(this@MainActivity, OverlayService::class.java))
-                } else {
-                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                }
-            }
-        })
-        root.addView(Button(this).apply {
-            text = "Stop floating controller"
-            setOnClickListener { stopService(Intent(this@MainActivity, OverlayService::class.java)) }
-        })
-        setContentView(root)
+        setContentView(ScrollView(this).apply { addView(content) })
 
         val filter = IntentFilter(VisualRecognitionService.ACTION_STATUS)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, RECEIVER_NOT_EXPORTED)
@@ -102,10 +119,8 @@ class MainActivity : Activity() {
                     putExtra(VisualRecognitionService.EXTRA_RESULT_DATA, data)
                 }
                 startForegroundService(service)
-                status.text = "Screen capture permission granted. Starting recognition…"
-            } else {
-                status.text = "Screen capture was cancelled."
-            }
+                status.text = "Screen recognition started. Now open your game and use the floating AI switch."
+            } else status.text = "Screen capture permission was cancelled."
         }
     }
 
