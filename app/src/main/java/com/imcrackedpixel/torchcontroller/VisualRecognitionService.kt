@@ -221,6 +221,7 @@ class VisualRecognitionService : Service() {
             val mapObservation = MinimapNavigation.observe(this, bitmap)
             if (mapObservation.isNotBlank()) torchSignals += mapObservation
             observeGeneralGameplay(text, torchSignals, objectDetails, bitmap.width, bitmap.height)
+            CloudGameAdvisor.maybeAnalyze(this, bitmap, text, torchSignals, objectDetails)
             GameWorldModel.observe(this, text, objectDetails, bitmap.width, bitmap.height)
             val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text }, enemyBars)
             updateHighlights(ocrLines, bitmap.width, bitmap.height, teachCandidate, enemyBars)
@@ -229,7 +230,7 @@ class VisualRecognitionService : Service() {
                 askTeachQuestion(teachCandidate.first, teachCandidate.second)
             }
             // Keep detailed OCR/object data internal; never dump raw screen text into the app UI.
-            sendStatus(understanding.summary)
+            sendStatus(getSharedPreferences("live_teaching", MODE_PRIVATE).getString("game_understanding_summary", "Learning game scene…") ?: "Learning game scene…")
             bitmap.recycle()
             processing.set(false)
         }
