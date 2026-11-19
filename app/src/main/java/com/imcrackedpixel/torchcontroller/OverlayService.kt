@@ -42,6 +42,22 @@ class OverlayService : Service() {
             val state = getSharedPreferences("live_teaching", MODE_PRIVATE).getString("last_state", "") ?: ""
             val live = getSharedPreferences("live_teaching", MODE_PRIVATE)
             val combat = state.contains("POSSIBLE COMBAT", true)
+            val phase = getSharedPreferences("torch_ai_brain", MODE_PRIVATE).getString("last_phase", "") ?: ""
+            val lastSeen = live.getLong("last_observed_at", 0L)
+            if (lastSeen == 0L || System.currentTimeMillis() - lastSeen > 12000L) {
+                status?.text = "AI waiting · screen recognition is not updating"
+                handler.postDelayed(this, 2200L)
+                return
+            }
+            if (phase == "MENU" || phase == "RECOVERY") {
+                status?.text = "AI paused · menu or recovery screen detected"
+                handler.postDelayed(this, 3000L)
+                return
+            }
+            if (phase == "POSSIBLE COMPLETION") {
+                stopAiPlay("Possible completion screen detected · check the game")
+                return
+            }
             val available = (0..3).filter { enabled[it] }
             val svc = TouchService.instance
             if (svc == null) { stopAiPlay("Accessibility disconnected · press GO again when restored"); return }
@@ -262,8 +278,8 @@ class OverlayService : Service() {
         content.addView(Button(this).apply {
             text = "SHOW LEARNING BRAIN"
             setOnClickListener {
-                val brain = getSharedPreferences("live_teaching", MODE_PRIVATE)
-                    .getString("brain_summary", "") ?: ""
+                val brain = TorchAiBrain.summary(this@OverlayService) + "\n\n" +
+                    (getSharedPreferences("live_teaching", MODE_PRIVATE).getString("brain_summary", "") ?: "")
                 status?.text = if (brain.isBlank()) {
                     "Learning brain is waiting for live screen recognition"
                 } else brain
@@ -316,21 +332,8 @@ class OverlayService : Service() {
     }
     // Learns a cautious per-button preference from repeated, local screen observations.
     // A falling count of candidate red bars is weak evidence only, not proof of damage.
-    private fun chooseLearningButton(available: List<Int>): Int {
-        val scores = try { JSONObject(memoryPrefs.getString("skill_learning", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
-        val unexplored = available.filter { index ->
-            val item = scores.optJSONObject((index + 1).toString())
-            (item?.optInt("trials", 0) ?: 0) < 2
-        }
-        if (unexplored.isNotEmpty()) return unexplored.minByOrNull { index ->
-            scores.optJSONObject((index + 1).toString())?.optInt("trials", 0) ?: 0
-        } ?: unexplored.first()
-        return available.maxByOrNull { index ->
-            val item = scores.optJSONObject((index + 1).toString()) ?: JSONObject()
-            val trials = item.optInt("trials", 0).coerceAtLeast(1)
-            (item.optInt("positive", 0).toDouble() - item.optInt("negative", 0).toDouble() * 0.5) / trials
-        } ?: available.first()
-    }
+    private fun chooseLearningButton(available: List<Int>): Int =
+        TorchAiBrain.chooseSkill(this, available).takeIf { it >= 0 } ?: available.first()
 
     private fun recordAiOutcome(index: Int, beforeBars: Int, afterBars: Int, beforeText: String, afterText: String) {
         try {
@@ -350,6 +353,7 @@ class OverlayService : Service() {
             })
             scores.put(key, item)
             memoryPrefs.edit().putString("skill_learning", scores.toString()).apply()
+            TorchAiBrain.recordOutcome(this, "skill", key, beforeText, afterText)
 
             val history = JSONArray(memoryPrefs.getString("ai_learning_history", "[]") ?: "[]")
             history.put(JSONObject().apply {
@@ -368,24 +372,8 @@ class OverlayService : Service() {
         }
     }
 
-    private fun chooseMovementDirection(): Int {
-        val history = try { JSONArray(memoryPrefs.getString("movement_learning", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
-        val trials = IntArray(8)
-        val changes = IntArray(8)
-        for (i in 0 until history.length()) {
-            val item = history.optJSONObject(i) ?: continue
-            val d = item.optInt("direction", -1)
-            if (d in 0..7) {
-                trials[d]++
-                if (item.optBoolean("screen_changed", false)) changes[d]++
-            }
-        }
-        val unexplored = (0..7).filter { trials[it] < 3 }
-        if (unexplored.isNotEmpty()) return unexplored.minByOrNull { trials[it] } ?: 0
-        return (0..7).maxByOrNull { d ->
-            (changes[d].toDouble() + 0.25) / (trials[d].toDouble() + 1.0)
-        } ?: 0
-    }
+    private fun chooseMovementDirection(): Int =
+        TorchAiBrain.chooseMovementDirection(this)
 
     private fun recordMovementOutcome(direction: Int, beforeState: String, afterState: String, beforeText: String, afterText: String) {
         try {
@@ -400,6 +388,7 @@ class OverlayService : Service() {
             })
             while (history.length() > 160) history.remove(0)
             memoryPrefs.edit().putString("movement_learning", history.toString()).apply()
+            TorchAiBrain.recordOutcome(this, "move", direction.toString(), beforeText, afterText)
         } catch (_: Exception) { }
     }
 
