@@ -103,6 +103,10 @@ class MainActivity : Activity() {
             setPadding(4, 18, 4, 8)
         })
         setContentView(ScrollView(this).apply { addView(content) })
+        // Once overlay permission has been granted, show the AI switch automatically on app launch.
+        if (Settings.canDrawOverlays(this)) {
+            startForegroundService(Intent(this, OverlayService::class.java))
+        }
 
         val filter = IntentFilter(VisualRecognitionService.ACTION_STATUS)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, RECEIVER_NOT_EXPORTED)
