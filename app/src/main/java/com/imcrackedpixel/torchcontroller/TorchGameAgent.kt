@@ -122,20 +122,41 @@ object TorchGameAgent {
         val p = prefs(context)
         val brain = context.getSharedPreferences("torch_ai_brain", Context.MODE_PRIVATE)
         val recent = safeArray(brain.getString("recent_move_directions", "[]"))
-        val avoid = (0 until recent.length()).mapNotNull { recent.optInt(it, -1).takeIf { v -> v in 0..7 } }.toSet()
         val scores = safeObject(brain.getString("scores_move", "{}"))
-        val all = (0..7).toList()
-        val candidates = all.filter { it !in avoid }.ifEmpty { all }
-        val seed = p.getInt("direction_seed", 0)
+        val results = safeArray(p.getString("movement_results", "[]"))
+        val noProgress = p.getInt("no_progress_streak", 0)
+
+        // Do not sweep clockwise through all eight joystick directions: that
+        // produces the circular-looking movement reported by the player.
+        // First test the four straight directions; use diagonals only after
+        // straight movement has repeatedly failed.
+        val pool = if (noProgress < 4) listOf(0, 2, 4, 6) else listOf(1, 3, 5, 7)
+        val last = recent.optInt(recent.length() - 1, -1)
+        val previous = recent.optInt(recent.length() - 2, -1)
+        val candidates = pool.filter { it != last && it != previous }.ifEmpty { pool }
+
+        val visits = IntArray(8)
+        val failuresByDirection = IntArray(8)
+        for (i in 0 until results.length()) {
+            val entry = results.optJSONObject(i) ?: continue
+            val d = entry.optInt("direction", -1)
+            if (d in 0..7) {
+                visits[d]++
+                if (!entry.optBoolean("changed", false)) failuresByDirection[d]++
+            }
+        }
+        val seed = p.getInt("direction_seed", 0).coerceIn(0, 7)
         val selected = candidates.minByOrNull { direction ->
             val item = scores.optJSONObject(direction.toString()) ?: JSONObject()
-            val trials = item.optInt("trials", 0)
-            val failures = item.optInt("negative", 0)
+            val trials = maxOf(visits[direction], item.optInt("trials", 0))
+            val failures = maxOf(failuresByDirection[direction], item.optInt("negative", 0))
             val successes = item.optInt("positive", 0)
-            // Try unexplored routes first; penalise repeatedly unsuccessful directions.
-            trials * 0.16 + failures * 4.5 - successes * 0.65 + ((direction - seed + 8) % 8) * 0.025
-        } ?: seed
-        p.edit().putInt("direction_seed", (selected + 3) % 8).apply()
+            // Explore the least-tested straight route; avoid repeating failed routes.
+            trials * 1.8 + failures * 3.5 - successes * 0.4 +
+                ((direction - seed + 8) % 8) * 0.01
+        } ?: pool.first()
+        // Advance through the candidate pool rather than rotating around the compass.
+        p.edit().putInt("direction_seed", (selected + 2) % 8).apply()
         return selected
     }
 
