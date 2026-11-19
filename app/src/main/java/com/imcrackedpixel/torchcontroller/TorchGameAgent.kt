@@ -109,18 +109,30 @@ object TorchGameAgent {
             return Decision("MOVE", "Possible danger cue: retreat and reassess rather than continue attacking", retreat, -1)
         }
 
-        val interaction = state.contains("LOOT VISIBLE", true) ||
-            listOf("pickup", "pick up", "claim reward", "accept quest", "talk to", "speak to",
-                "interact", "open chest", "open door", "enter portal", "continue", "press to collect", "collect reward", "shop", "activate", "use object").any { lower.contains(it) }
-        if (interaction) return Decision("INTERACT", "Visible interaction cue: test the mapped I control and verify the result", direction, -1)
+        // Movement is the default action. Stale OCR and broad interaction words
+        // must never trap the agent in an interaction loop.
+        val strongInteraction = listOf("tap to collect", "press to collect", "claim reward",
+            "accept quest", "talk to npc", "speak to npc", "open chest", "enter portal")
+            .any { lower.contains(it) }
+        if (strongInteraction && prefs(context).getInt("move_steps_since_interact", 0) >= 3) {
+            prefs(context).edit().putInt("move_steps_since_interact", 0).apply()
+            return Decision("INTERACT", "Specific interaction prompt detected; test once, then resume navigation", direction, -1)
+        }
 
         val combat = enemyBars > 0 || phase.contains("COMBAT", true) ||
             listOf("boss", "enemy", "monster", "attack").any { lower.contains(it) }
-        if (combat && availableSkills.isNotEmpty()) {
+        val actionCycle = prefs(context).getInt("navigation_action_cycle", 0)
+        // Two navigation actions for every skill trial, including during combat.
+        if (combat && availableSkills.isNotEmpty() && actionCycle % 3 == 2) {
             val selected = TorchAiBrain.chooseSkill(context, availableSkills).takeIf { it >= 0 } ?: availableSkills.first()
-            return Decision("SKILL", "Possible combat: use a learned mapped skill, then check for a change", direction, selected)
+            prefs(context).edit().putInt("navigation_action_cycle", actionCycle + 1).apply()
+            return Decision("SKILL", "Combat cue: one skill trial between navigation moves", direction, selected)
         }
-        return Decision("MOVE", "No strong combat or interaction cue: explore a less-tested direction", direction, -1)
+        prefs(context).edit().putInt("navigation_action_cycle", actionCycle + 1)
+            .putInt("move_steps_since_interact", prefs(context).getInt("move_steps_since_interact", 0) + 1).apply()
+        val mapDirection = MinimapNavigation.suggestedDirection(context)
+        val chosen = mapDirection ?: direction
+        return Decision("MOVE", if (mapDirection != null) "Follow minimap target bearing" else "Explore an under-tested route", chosen, -1)
     }
 
     fun chooseDirection(context: Context): Int {
@@ -151,6 +163,9 @@ object TorchGameAgent {
             }
         }
         val seed = p.getInt("direction_seed", 0).coerceIn(0, 7)
+        val mapDirection = MinimapNavigation.suggestedDirection(context)
+        val mapFailures = mapDirection?.let { d -> failuresByDirection[d] } ?: 0
+        if (mapDirection != null && mapFailures < 2 && noProgress < 4) return mapDirection
         val selected = candidates.minByOrNull { direction ->
             val item = scores.optJSONObject(direction.toString()) ?: JSONObject()
             val trials = maxOf(visits[direction], item.optInt("trials", 0))
@@ -218,11 +233,12 @@ object TorchGameAgent {
         return "TORCH AI LEARNING REPORT\n" +
             "Game profile hint: $profile\nScreen observations: $observations\nScene changes remembered: $scenes\n" +
             "Screen sectors with detected objects: $sectors/9\nVisual labels remembered: $labels\nTracked label entries: $entities\n" +
+            MinimapNavigation.report(context) + "\n" +
             "Candidate objective records: $objectiveEntries\nAction experiments: ${actions.length()} (screen changes: $positive; no readable change: $negative)\n" +
             "No-progress movement streak: $streak · $health\n" +
             (if (objective.isNotBlank()) "Current OCR objective candidate: $objective\n" else "No readable objective candidate yet\n") +
             "\nIMPORTANT: screen changes are weak clues, not proof of movement, damage, loot, or quest completion. " +
-            "The 3x3 memory is screen-region memory, not a real world map. Generic labels may be wrong."
+            "The minimap memory is a coarse explored-position grid, not a full collision or world map. Generic labels may be wrong."
     }
 
     private fun safeArray(value: String?): JSONArray = try { JSONArray(value ?: "[]") } catch (_: Exception) { JSONArray() }
