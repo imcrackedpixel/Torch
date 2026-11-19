@@ -122,7 +122,7 @@ class MainActivity : Activity() {
                 android.app.AlertDialog.Builder(this@MainActivity)
                     .setTitle("Groq vision connection")
                     .setView(layout)
-                    .setPositiveButton("Save securely on this phone") { _, _ ->
+                    .setPositiveButton("Save on this phone") { _, _ ->
                         prefs.edit().putString("groq_api_key", keyField.text.toString().trim()).apply()
                         status.text = if (keyField.text.toString().isBlank()) "Cloud vision disabled. Local AI still works." else "Groq key saved on this phone. Start screen recognition; cloud analysis will run periodically."
                     }
