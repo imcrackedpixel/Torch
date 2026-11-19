@@ -30,37 +30,61 @@ class OverlayService : Service() {
     private var replaying = false
     private var aiPlaying = false
     private var aiWaitingForResult = false
+    private var movementAnchor: Button? = null
+    private var movementParams: WindowManager.LayoutParams? = null
+    private var movementDirectionIndex = 0
     private val aiPlayLoop = object : Runnable {
         override fun run() {
             if (!aiPlaying || aiWaitingForResult) return
             val state = getSharedPreferences("live_teaching", MODE_PRIVATE).getString("last_state", "") ?: ""
-            if (!state.contains("POSSIBLE COMBAT", true)) {
-                status?.text = "AI running · waiting for possible combat"
-                handler.postDelayed(this, 1800L)
-                return
-            }
+            val live = getSharedPreferences("live_teaching", MODE_PRIVATE)
+            val combat = state.contains("POSSIBLE COMBAT", true)
             val available = (0..3).filter { enabled[it] }
-            if (available.isEmpty()) { stopAiPlay("AI stopped: turn ON at least one T button"); return }
-            val index = chooseLearningButton(available)
-            val b = taps[index]; val p = params[index]; val svc = TouchService.instance
-            if (b == null || p == null || svc == null) { stopAiPlay("AI stopped: controller or Accessibility unavailable"); return }
-            val x = p.x + b.width / 2f
-            val y = p.y + b.height / 2f
-            val beforeBars = getSharedPreferences("live_teaching", MODE_PRIVATE).getInt("enemy_bar_count", -1)
-            val beforeObservation = getSharedPreferences("live_teaching", MODE_PRIVATE).getString("last_observation", "") ?: ""
-            svc.tapAt(x, y)
-            recordAction(index, x, y)
+            val svc = TouchService.instance
+            if (svc == null) { stopAiPlay("Accessibility disconnected · press GO again when restored"); return }
+            val beforeBars = live.getInt("enemy_bar_count", -1)
+            val beforeObservation = live.getString("last_observation", "") ?: ""
+            val beforeState = state
+            val trySkill = combat && available.isNotEmpty() && (movementDirectionIndex % 4 != 3)
+            if (trySkill) {
+                val index = chooseLearningButton(available)
+                val b = taps[index]; val p = params[index]
+                if (b != null && p != null) {
+                    val x = p.x + b.width / 2f
+                    val y = p.y + b.height / 2f
+                    svc.tapAt(x, y)
+                    recordAction(index, x, y)
+                    aiWaitingForResult = true
+                    status?.text = "AI experimenting · skill T" + (index + 1)
+                    handler.postDelayed({
+                        if (!aiPlaying) { aiWaitingForResult = false; return@postDelayed }
+                        val after = getSharedPreferences("live_teaching", MODE_PRIVATE)
+                        recordAiOutcome(index, beforeBars, after.getInt("enemy_bar_count", -1), beforeObservation, after.getString("last_observation", "") ?: "")
+                        aiWaitingForResult = false
+                        handler.postDelayed(aiPlayLoop, 500L)
+                    }, 2200L)
+                    return
+                }
+            }
+            val anchor = movementParams
+            if (anchor == null) { status?.text = "AI needs a movement anchor: drag M onto the game's joystick"; handler.postDelayed(this, 1600L); return }
+            val directions = arrayOf(
+                Pair(0f, -42f), Pair(30f, -30f), Pair(42f, 0f), Pair(30f, 30f),
+                Pair(0f, 42f), Pair(-30f, 30f), Pair(-42f, 0f), Pair(-30f, -30f)
+            )
+            val direction = directions[movementDirectionIndex % directions.size]
+            val dirIndex = movementDirectionIndex % directions.size
+            movementDirectionIndex = (movementDirectionIndex + 1) % directions.size
+            svc.moveJoystick(anchor.x + 32f, anchor.y + 32f, direction.first * resources.displayMetrics.density, direction.second * resources.displayMetrics.density, 700L)
             aiWaitingForResult = true
-            status?.text = "AI learning · tried T" + (index + 1) + " · checking screen evidence"
+            status?.text = "AI exploring · movement direction " + (dirIndex + 1) + "/8"
             handler.postDelayed({
                 if (!aiPlaying) { aiWaitingForResult = false; return@postDelayed }
-                val live = getSharedPreferences("live_teaching", MODE_PRIVATE)
-                val afterBars = live.getInt("enemy_bar_count", -1)
-                val afterObservation = live.getString("last_observation", "") ?: ""
-                recordAiOutcome(index, beforeBars, afterBars, beforeObservation, afterObservation)
+                val after = getSharedPreferences("live_teaching", MODE_PRIVATE)
+                recordMovementOutcome(dirIndex, beforeState, after.getString("last_state", "") ?: "", beforeObservation, after.getString("last_observation", "") ?: "")
                 aiWaitingForResult = false
-                handler.postDelayed(aiPlayLoop, 900L)
-            }, 2400L)
+                handler.postDelayed(aiPlayLoop, 450L)
+            }, 1900L)
         }
     }
     private val replayTasks = mutableListOf<Runnable>()
@@ -127,6 +151,27 @@ class OverlayService : Service() {
             }
             wm.addView(button,lp)
         }
+        val moveButton = Button(this).apply { text="M\\nMOVE"; textSize=11f; isAllCaps=false; setTextColor(Color.WHITE); setBackgroundColor(0xCC6A4C93.toInt()) }
+        val moveLp = WindowManager.LayoutParams((64*density).roundToInt(),(64*density).roundToInt(),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply {
+            gravity=Gravity.TOP or Gravity.LEFT
+            x=prefs.getInt("move_x",(24*density).roundToInt())
+            y=prefs.getInt("move_y",(resources.displayMetrics.heightPixels-190*density).roundToInt())
+        }
+        movementAnchor=moveButton; movementParams=moveLp
+        var moveDownX=0f; var moveDownY=0f; var moveStartX=0; var moveStartY=0; var moveDragged=false
+        moveButton.setOnTouchListener { v,e ->
+            when(e.action) {
+                MotionEvent.ACTION_DOWN -> { moveDownX=e.rawX; moveDownY=e.rawY; moveStartX=moveLp.x; moveStartY=moveLp.y; moveDragged=false; true }
+                MotionEvent.ACTION_MOVE -> {
+                    if(kotlin.math.abs(e.rawX-moveDownX)>8*density || kotlin.math.abs(e.rawY-moveDownY)>8*density) moveDragged=true
+                    if(moveDragged){moveLp.x=moveStartX+(e.rawX-moveDownX).roundToInt();moveLp.y=moveStartY+(e.rawY-moveDownY).roundToInt();wm.updateViewLayout(v,moveLp)}
+                    true
+                }
+                MotionEvent.ACTION_UP -> { if(moveDragged) prefs.edit().putInt("move_x",moveLp.x).putInt("move_y",moveLp.y).apply(); true }
+                else -> true
+            }
+        }
+        wm.addView(moveButton,moveLp)
         panel=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(8,8,8,8); setBackgroundColor(0xDD20252B.toInt()) }
         status=TextView(this).apply { text="Tap bubbles to enable · drag to move"; setTextColor(Color.WHITE); textSize=12f }
         panel.addView(status)
@@ -240,12 +285,29 @@ class OverlayService : Service() {
         }
     }
 
+    private fun recordMovementOutcome(direction: Int, beforeState: String, afterState: String, beforeText: String, afterText: String) {
+        try {
+            val history = JSONArray(memoryPrefs.getString("movement_learning", "[]") ?: "[]")
+            history.put(JSONObject().apply {
+                put("time", System.currentTimeMillis())
+                put("direction", direction)
+                put("before_state", beforeState)
+                put("after_state", afterState)
+                put("screen_changed", beforeText != afterText)
+                put("evidence", if (beforeText != afterText) "screen OCR changed after movement" else "no OCR change detected")
+            })
+            while (history.length() > 160) history.remove(0)
+            memoryPrefs.edit().putString("movement_learning", history.toString()).apply()
+        } catch (_: Exception) { }
+    }
+
     private fun startAiPlay() {
         if (aiPlaying) { status?.text = "AI play is already running"; return }
         if (TouchService.instance == null) { status?.text = "Enable Accessibility before AI play"; return }
-        if ((0..3).none { enabled[it] }) { status?.text = "Turn ON the skill buttons you want AI to try first"; return }
+        if (movementParams == null) { status?.text = "Movement anchor missing · restart controller"; return }
         stopAutomation("Pausing other automation for AI play")
         aiPlaying = true; aiWaitingForResult = false
+        movementAnchor?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         status?.text = "AI GO · learning continuously · STOP AI to end"
         handler.post(aiPlayLoop)
     }
@@ -253,6 +315,7 @@ class OverlayService : Service() {
     private fun stopAiPlay(message: String) {
         aiPlaying = false
         aiWaitingForResult = false
+        movementAnchor?.let { if (!it.isAttachedToWindow) try { wm.addView(it, movementParams) } catch (_: Exception) {} }
         handler.removeCallbacks(aiPlayLoop)
         status?.text = message
     }
@@ -321,6 +384,6 @@ class OverlayService : Service() {
     private fun updateStatus(){ status?.text=if(running) "Running · "+enabled.count{it}+" active · STOP ALL" else "Tap bubbles to enable · drag to move" }
     private fun stopAutomation(message:String){stopAiPlay(message);running=false;for(i in 0..3)handler.removeCallbacks(loops[i]);stopReplay();status?.text=message}
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int)=START_STICKY
-    override fun onDestroy(){recording=false;stopAutomation("Controller closed");for(b in taps)if(b?.isAttachedToWindow==true)wm.removeView(b);if(::panel.isInitialized&&panel.isAttachedToWindow)wm.removeView(panel);super.onDestroy()}
+    override fun onDestroy(){recording=false;stopAutomation("Controller closed");for(b in taps)if(b?.isAttachedToWindow==true)wm.removeView(b);movementAnchor?.let{if(it.isAttachedToWindow)wm.removeView(it)};if(::panel.isInitialized&&panel.isAttachedToWindow)wm.removeView(panel);super.onDestroy()}
     override fun onBind(intent:Intent?):IBinder?=null
 }
