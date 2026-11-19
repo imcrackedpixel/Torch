@@ -66,6 +66,11 @@ class OverlayService : Service() {
             val beforeState = state
             val observedText = live.getString("last_observation", "") ?: ""
             val decision = TorchGameAgent.plan(this, phase, state, observedText, live.getInt("enemy_bar_count", -1), available)
+            if (decision.action == "WAIT") {
+                status?.text = "AI holding · " + decision.reason
+                handler.postDelayed(this, 1800L)
+                return
+            }
             val interactionCue = decision.action == "INTERACT"
             val interactionPoint = interactParams
             if (interactionCue && interactionPoint != null) {
