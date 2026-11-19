@@ -7,9 +7,9 @@ import java.security.MessageDigest
 import java.util.Locale
 
 /**
- * Conservative on-device action-RPG starter agent.
- * It selects among mapped controls using visible cues and stored action evidence.
- * It does not claim to understand arbitrary game worlds or prove quest completion.
+ * On-device game agent. Uses visible OCR/object cues and locally learned action
+ * evidence. All inferred progress is explicitly treated as uncertain until the
+ * game provides readable confirmation.
  */
 object TorchGameAgent {
     data class Decision(val action: String, val reason: String, val direction: Int, val skillIndex: Int)
@@ -18,41 +18,42 @@ object TorchGameAgent {
 
     fun observeScene(context: Context, lines: List<String>, objects: List<String>, width: Int, height: Int) {
         val p = prefs(context)
-        val text = lines.joinToString(" ").lowercase(Locale.ROOT).take(900)
-        val tokens = text.split(Regex("[^a-z0-9]+")).filter { it.length >= 4 }.distinct().sorted().take(24)
+        val text = lines.joinToString(" ").lowercase(Locale.ROOT).take(1200)
+        val tokens = text.split(Regex("[^a-z0-9]+")).filter { it.length >= 4 }.distinct().sorted().take(32)
         val fingerprint = digest(tokens.joinToString("|"))
         val old = p.getString("game_fingerprint", "") ?: ""
         val now = System.currentTimeMillis()
-        // Keep a bounded objective journal from readable HUD/quest text. These are
-        // candidate objectives only; completion is never inferred from a screen change.
+
         val objectiveLine = lines.firstOrNull { line ->
             val l = line.lowercase(Locale.ROOT)
             listOf("quest", "objective", "defeat", "kill ", "collect", "find ", "talk to",
-                "speak to", "return to", "reach ", "deliver", "activate", "rescue", "0/", "1/").any { l.contains(it) }
+                "speak to", "return to", "reach ", "deliver", "activate", "rescue",
+                "0/", "1/", "2/", "3/", "4/", "5/").any { l.contains(it) }
         }?.trim()?.take(180).orEmpty()
         val previousObjective = p.getString("candidate_objective", "") ?: ""
-        val objectiveHistory = try { JSONArray(p.getString("objective_journal", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+        val objectiveHistory = safeArray(p.getString("objective_journal", "[]"))
         if (objectiveLine.isNotBlank() && objectiveLine != previousObjective) {
             objectiveHistory.put(JSONObject().apply {
                 put("time", now); put("text", objectiveLine); put("status", "candidate")
             })
-            while (objectiveHistory.length() > 60) objectiveHistory.remove(0)
+            while (objectiveHistory.length() > 80) objectiveHistory.remove(0)
         }
-        val entities = try { JSONObject(p.getString("screen_entity_memory", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
-        val sectors = try { JSONObject(p.getString("screen_sector_memory", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
-        objects.take(40).forEach { detail ->
+
+        val entities = safeObject(p.getString("screen_entity_memory", "{}"))
+        val sectors = safeObject(p.getString("screen_sector_memory", "{}"))
+        objects.take(50).forEach { detail ->
             val coords = detail.substringAfter("@", "").split(",")
             val cx = coords.getOrNull(0)?.toFloatOrNull() ?: return@forEach
             val cy = coords.getOrNull(1)?.toFloatOrNull() ?: return@forEach
             val sx = (cx / width.coerceAtLeast(1) * 3f).toInt().coerceIn(0, 2)
             val sy = (cy / height.coerceAtLeast(1) * 3f).toInt().coerceIn(0, 2)
             val key = "$sx,$sy"
-            val item = sectors.optJSONObject(key) ?: JSONObject()
-            item.put("seen", item.optInt("seen", 0) + 1)
-            item.put("last_seen", now)
             val label = detail.substringBefore("@").trim().take(80)
-            item.put("last_label", label)
-            sectors.put(key, item)
+            val sector = sectors.optJSONObject(key) ?: JSONObject()
+            sector.put("seen", sector.optInt("seen", 0) + 1)
+            sector.put("last_seen", now)
+            sector.put("last_label", label)
+            sectors.put(key, sector)
             if (label.isNotBlank()) {
                 val entity = entities.optJSONObject(label) ?: JSONObject()
                 entity.put("seen", entity.optInt("seen", 0) + 1)
@@ -63,15 +64,16 @@ object TorchGameAgent {
                 entities.put(label, entity)
             }
         }
-        val history = try { JSONArray(p.getString("scene_history", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+
+        val history = safeArray(p.getString("scene_history", "[]"))
         if (fingerprint != old || history.length() == 0) {
             history.put(JSONObject().apply {
                 put("time", now); put("fingerprint", fingerprint)
-                put("text", text.take(240)); put("object_count", objects.size)
+                put("text", text.take(300)); put("object_count", objects.size)
             })
-            while (history.length() > 180) history.remove(0)
+            while (history.length() > 240) history.remove(0)
         }
-        val profile = tokens.take(8).joinToString("-").ifBlank { "unidentified-game" }.take(100)
+        val profile = tokens.take(10).joinToString("-").ifBlank { "unidentified-game" }.take(120)
         p.edit().putString("game_fingerprint", fingerprint)
             .putString("game_profile_hint", profile)
             .putString("screen_sector_memory", sectors.toString())
@@ -85,33 +87,43 @@ object TorchGameAgent {
 
     fun plan(context: Context, phase: String, state: String, text: String, enemyBars: Int, availableSkills: List<Int>): Decision {
         val lower = (state + " " + text).lowercase(Locale.ROOT)
+        val direction = chooseDirection(context)
         if (phase.contains("MENU", true) || phase.contains("RECOVERY", true) ||
             lower.contains("game over") || lower.contains("you died") || lower.contains("inventory") ||
-            lower.contains("settings") || lower.contains("skill tree")) {
-            return Decision("WAIT", "Menu or recovery state: wait for safe gameplay", chooseDirection(context), -1)
+            lower.contains("settings") || lower.contains("skill tree") || lower.contains("connection lost")) {
+            return Decision("WAIT", "Menu, recovery or connection state: pause for safe player input", direction, -1)
         }
-        if (phase.contains("POSSIBLE COMPLETION", true) || listOf("victory", "stage clear", "mission complete", "quest complete").any { lower.contains(it) }) {
-            return Decision("WAIT", "Possible completion: stop and ask the player to verify", chooseDirection(context), -1)
+        if (phase.contains("POSSIBLE COMPLETION", true) ||
+            listOf("victory", "stage clear", "mission complete", "quest complete", "level complete").any { lower.contains(it) }) {
+            return Decision("WAIT", "Possible completion: stop and ask the player to verify", direction, -1)
         }
+
+        val danger = listOf("low health", "health critical", "critical health", "almost dead", "danger", "retreat").any { lower.contains(it) }
+        if (danger) {
+            val retreat = oppositeRecentDirection(context)
+            return Decision("MOVE", "Possible danger cue: retreat and reassess rather than continue attacking", retreat, -1)
+        }
+
         val interaction = state.contains("LOOT VISIBLE", true) ||
             listOf("pickup", "pick up", "claim reward", "accept quest", "talk to", "speak to",
                 "interact", "open chest", "enter portal", "continue", "press to collect").any { lower.contains(it) }
-        if (interaction) return Decision("INTERACT", "Visible loot or interaction text; test the mapped I control", chooseDirection(context), -1)
+        if (interaction) return Decision("INTERACT", "Visible interaction cue: test the mapped I control and verify the result", direction, -1)
+
         val combat = enemyBars > 0 || phase.contains("COMBAT", true) ||
             listOf("boss", "enemy", "monster", "attack").any { lower.contains(it) }
         if (combat && availableSkills.isNotEmpty()) {
             val selected = TorchAiBrain.chooseSkill(context, availableSkills).takeIf { it >= 0 } ?: availableSkills.first()
-            return Decision("SKILL", "Possible combat; use the best remembered mapped skill", chooseDirection(context), selected)
+            return Decision("SKILL", "Possible combat: use a learned mapped skill, then check for a change", direction, selected)
         }
-        return Decision("MOVE", "No strong combat or interaction cue; explore a less-tested direction", chooseDirection(context), -1)
+        return Decision("MOVE", "No strong combat or interaction cue: explore a less-tested direction", direction, -1)
     }
 
     fun chooseDirection(context: Context): Int {
         val p = prefs(context)
         val brain = context.getSharedPreferences("torch_ai_brain", Context.MODE_PRIVATE)
-        val recent = try { JSONArray(brain.getString("recent_move_directions", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+        val recent = safeArray(brain.getString("recent_move_directions", "[]"))
         val avoid = (0 until recent.length()).mapNotNull { recent.optInt(it, -1).takeIf { v -> v in 0..7 } }.toSet()
-        val scores = try { JSONObject(brain.getString("scores_move", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
+        val scores = safeObject(brain.getString("scores_move", "{}"))
         val all = (0..7).toList()
         val candidates = all.filter { it !in avoid }.ifEmpty { all }
         val seed = p.getInt("direction_seed", 0)
@@ -120,21 +132,29 @@ object TorchGameAgent {
             val trials = item.optInt("trials", 0)
             val failures = item.optInt("negative", 0)
             val successes = item.optInt("positive", 0)
-            failures * 5.0 + trials * 0.18 - successes * 1.4 + ((direction - seed + 8) % 8) * 0.015
+            // Try unexplored routes first; penalise repeatedly unsuccessful directions.
+            trials * 0.16 + failures * 4.5 - successes * 0.65 + ((direction - seed + 8) % 8) * 0.025
         } ?: seed
         p.edit().putInt("direction_seed", (selected + 3) % 8).apply()
         return selected
     }
 
+    private fun oppositeRecentDirection(context: Context): Int {
+        val recent = safeArray(context.getSharedPreferences("torch_ai_brain", Context.MODE_PRIVATE)
+            .getString("recent_move_directions", "[]"))
+        val last = recent.optInt(recent.length() - 1, -1)
+        return if (last in 0..7) (last + 4) % 8 else chooseDirection(context)
+    }
+
     fun recordMovement(context: Context, direction: Int, changed: Boolean) {
         val p = prefs(context)
-        val streak = if (changed) 0 else p.getInt("no_progress_streak", 0) + 1
-        val history = try { JSONArray(p.getString("movement_results", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+        val streak = if (changed) 0 else (p.getInt("no_progress_streak", 0) + 1).coerceAtMost(99)
+        val history = safeArray(p.getString("movement_results", "[]"))
         history.put(JSONObject().apply {
             put("time", System.currentTimeMillis()); put("direction", direction)
             put("changed", changed); put("streak", streak)
         })
-        while (history.length() > 100) history.remove(0)
+        while (history.length() > 120) history.remove(0)
         p.edit().putInt("no_progress_streak", streak)
             .putString("movement_results", history.toString())
             .putLong("last_action_at", System.currentTimeMillis()).apply()
@@ -152,19 +172,35 @@ object TorchGameAgent {
     fun report(context: Context): String {
         val p = prefs(context)
         val brain = context.getSharedPreferences("torch_ai_brain", Context.MODE_PRIVATE)
-        val scenes = try { JSONArray(p.getString("scene_history", "[]") ?: "[]").length() } catch (_: Exception) { 0 }
-        val sectors = try { JSONObject(p.getString("screen_sector_memory", "{}") ?: "{}").length() } catch (_: Exception) { 0 }
-        val actions = try { JSONArray(brain.getString("action_history", "[]") ?: "[]").length() } catch (_: Exception) { 0 }
+        val scenes = safeArray(p.getString("scene_history", "[]")).length()
+        val sectors = safeObject(p.getString("screen_sector_memory", "{}")).length()
+        val actions = safeArray(brain.getString("action_history", "[]"))
+        var positive = 0
+        var negative = 0
+        for (i in 0 until actions.length()) {
+            val item = actions.optJSONObject(i) ?: continue
+            if (item.optBoolean("changed")) positive++ else negative++
+        }
         val observations = brain.getInt("total_observations", 0)
-        val labels = try { JSONObject(brain.getString("object_memory", "{}") ?: "{}").length() } catch (_: Exception) { 0 }
-        val visualEntities = try { JSONObject(p.getString("screen_entity_memory", "{}") ?: "{}").length() } catch (_: Exception) { 0 }
-        val objectiveEntries = try { JSONArray(p.getString("objective_journal", "[]") ?: "[]").length() } catch (_: Exception) { 0 }
+        val labels = safeObject(brain.getString("object_memory", "{}")).length()
+        val entities = safeObject(p.getString("screen_entity_memory", "{}")).length()
+        val objectiveEntries = safeArray(p.getString("objective_journal", "[]")).length()
         val objective = p.getString("candidate_objective", "") ?: ""
         val streak = p.getInt("no_progress_streak", 0)
         val profile = p.getString("game_profile_hint", "not identified") ?: "not identified"
-        return "TORCH AI LEARNING REPORT\nProfile hint: $profile\nScreen observations: $observations\nScene changes remembered: $scenes\nScreen sectors with detected objects: $sectors/9\nObject labels remembered: $labels\nRecorded action experiments: $actions\nRecent no-progress movement streak: $streak\n\nEvidence is heuristic. Screen changes and detected objects are not proof of movement, damage, loot collection or quest completion. The 3x3 memory is screen-region memory, not a true world map."
+        val health = if (streak >= 5) "movement may be stuck; try repositioning M or manually moving" else "no severe movement stall recorded"
+        return "TORCH AI LEARNING REPORT\n" +
+            "Game profile hint: $profile\nScreen observations: $observations\nScene changes remembered: $scenes\n" +
+            "Screen sectors with detected objects: $sectors/9\nVisual labels remembered: $labels\nTracked label entries: $entities\n" +
+            "Candidate objective records: $objectiveEntries\nAction experiments: ${actions.length()} (screen changes: $positive; no readable change: $negative)\n" +
+            "No-progress movement streak: $streak · $health\n" +
+            (if (objective.isNotBlank()) "Current OCR objective candidate: $objective\n" else "No readable objective candidate yet\n") +
+            "\nIMPORTANT: screen changes are weak clues, not proof of movement, damage, loot, or quest completion. " +
+            "The 3x3 memory is screen-region memory, not a real world map. Generic labels may be wrong."
     }
 
+    private fun safeArray(value: String?): JSONArray = try { JSONArray(value ?: "[]") } catch (_: Exception) { JSONArray() }
+    private fun safeObject(value: String?): JSONObject = try { JSONObject(value ?: "{}") } catch (_: Exception) { JSONObject() }
     private fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray(Charsets.UTF_8)).take(10).joinToString("") { "%02x".format(it) }
 }
