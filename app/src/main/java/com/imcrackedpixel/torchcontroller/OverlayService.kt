@@ -59,7 +59,7 @@ class OverlayService : Service() {
                 val afterObservation = live.getString("last_observation", "") ?: ""
                 recordAiOutcome(index, beforeBars, afterBars, beforeObservation, afterObservation)
                 aiWaitingForResult = false
-                handler.postDelayed(this, 900L)
+                handler.postDelayed(aiPlayLoop, 900L)
             }, 2400L)
         }
     }
