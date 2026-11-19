@@ -18,15 +18,15 @@ object EndgameGameBrain {
         val text = (lines.joinToString(" ") + " " + cues.joinToString(" ")).lowercase(Locale.ROOT)
         val profile = profileFor(text)
         val phase = when {
-            listOf("game over", "you died", "defeat", "respawn").any(text::contains) -> "RECOVERY"
-            listOf("victory", "stage clear", "mission complete", "quest complete", "level complete").any(text::contains) -> "POSSIBLE COMPLETION"
-            listOf("inventory", "settings", "skill tree", "equipment", "paused", "main menu", "options").any(text::contains) -> "MENU"
-            listOf("boss", "enemy", "monster", "elite").any(text::contains) || cues.any { it.contains("enemy", true) || it.contains("combat", true) } -> "POSSIBLE COMBAT"
+            listOf("game over", "you died", "defeat", "respawn").any { text.contains(it) } -> "RECOVERY"
+            listOf("victory", "stage clear", "mission complete", "quest complete", "level complete").any { text.contains(it) } -> "POSSIBLE COMPLETION"
+            listOf("inventory", "settings", "skill tree", "equipment", "paused", "main menu", "options").any { text.contains(it) } -> "MENU"
+            listOf("boss", "enemy", "monster", "elite").any { text.contains(it) } || cues.any { it.contains("enemy", true) || it.contains("combat", true) } -> "POSSIBLE COMBAT"
             else -> "EXPLORATION / UNKNOWN"
         }
         val objective = lines.firstOrNull { line ->
             val l = line.lowercase(Locale.ROOT)
-            listOf("quest", "objective", "defeat", "kill", "collect", "find", "talk to", "speak to", "return to", "reach", "deliver", "activate", "rescue", "investigate").any(l::contains)
+            listOf("quest", "objective", "defeat", "kill", "collect", "find", "talk to", "speak to", "return to", "reach", "deliver", "activate", "rescue", "investigate").any { l.contains(it) }
         }?.trim()?.take(220).orEmpty()
         val key = (profile + phase + objective + text.take(300)).hashCode().toString()
         val history = arr(p.getString("scene_memory", "[]"))
@@ -50,10 +50,10 @@ object EndgameGameBrain {
         val lower = (phase + " " + state + " " + text).lowercase(Locale.ROOT)
         val profile = p.getString("profile", profileFor(lower)) ?: profileFor(lower)
         val mode = when {
-            phase.contains("RECOVERY", true) || listOf("game over", "you died", "respawn", "connection lost").any(lower::contains) -> "RECOVERY"
-            phase.contains("MENU", true) || listOf("inventory", "settings", "skill tree", "equipment", "paused", "main menu").any(lower::contains) -> "MENU"
-            phase.contains("COMPLETION", true) || listOf("victory", "stage clear", "mission complete", "quest complete", "level complete").any(lower::contains) -> "POSSIBLE COMPLETION"
-            enemyBars > 0 || phase.contains("COMBAT", true) || listOf("boss", "enemy", "monster", "elite").any(lower::contains) -> "COMBAT"
+            phase.contains("RECOVERY", true) || listOf("game over", "you died", "respawn", "connection lost").any { lower.contains(it) } -> "RECOVERY"
+            phase.contains("MENU", true) || listOf("inventory", "settings", "skill tree", "equipment", "paused", "main menu").any { lower.contains(it) } -> "MENU"
+            phase.contains("COMPLETION", true) || listOf("victory", "stage clear", "mission complete", "quest complete", "level complete").any { lower.contains(it) } -> "POSSIBLE COMPLETION"
+            enemyBars > 0 || phase.contains("COMBAT", true) || listOf("boss", "enemy", "monster", "elite").any { lower.contains(it) } -> "COMBAT"
             else -> "EXPLORATION"
         }
         val direction = TorchGameAgent.chooseDirection(c)
@@ -61,14 +61,14 @@ object EndgameGameBrain {
             return decide(c, "WAIT", mode + " detected · wait for a safe gameplay screen", direction, -1)
 
         val noProgress = p.getInt("no_progress", 0)
-        if (listOf("low health", "critical health", "health critical", "almost dead", "retreat", "danger").any(lower::contains)) {
+        if (listOf("low health", "critical health", "health critical", "almost dead", "retreat", "danger").any { lower.contains(it) }) {
             val recent = arr(c.getSharedPreferences("torch_ai_brain", Context.MODE_PRIVATE).getString("recent_move_directions", "[]"))
             val last = recent.optInt(recent.length() - 1, -1)
             val retreat = if (last in 0..7) (last + 4) % 8 else direction
             return decide(c, "MOVE", "Possible danger cue · disengage and reassess", retreat, -1)
         }
 
-        val interaction = listOf("tap to collect", "press to collect", "talk to npc", "speak to npc", "open chest", "accept quest", "claim reward", "enter portal", "tap to interact", "press to interact", "interact").any(lower::contains)
+        val interaction = listOf("tap to collect", "press to collect", "talk to npc", "speak to npc", "open chest", "accept quest", "claim reward", "enter portal", "tap to interact", "press to interact", "interact").any { lower.contains(it) }
         if (interaction && p.getInt("steps_since_interaction", 0) >= 2) {
             p.edit().putInt("steps_since_interaction", 0).apply()
             return decide(c, "INTERACT", "Specific interaction cue · test once, then verify the result", direction, -1)
@@ -177,11 +177,11 @@ object EndgameGameBrain {
     }
 
     private fun profileFor(text: String): String = when {
-        listOf("torchlight", "netherrealm", "timemark", "pactspirit", "magus", "iris").any(text::contains) -> "Torchlight-style action RPG"
-        listOf("health potion", "boss", "inventory", "quest", "loot", "skill").count(text::contains) >= 3 -> "Action RPG"
-        listOf("lap", "race", "speedometer", "nitro", "checkpoint").any(text::contains) -> "Racing game"
-        listOf("jump", "platform", "checkpoint", "double jump").count(text::contains) >= 2 -> "Platform game"
-        listOf("match", "swap", "combo", "level objective").count(text::contains) >= 2 -> "Puzzle / match game"
+        listOf("torchlight", "netherrealm", "timemark", "pactspirit", "magus", "iris").any { text.contains(it) } -> "Torchlight-style action RPG"
+        listOf("health potion", "boss", "inventory", "quest", "loot", "skill").count { text.contains(it) } >= 3 -> "Action RPG"
+        listOf("lap", "race", "speedometer", "nitro", "checkpoint").any { text.contains(it) } -> "Racing game"
+        listOf("jump", "platform", "checkpoint", "double jump").count { text.contains(it) } >= 2 -> "Platform game"
+        listOf("match", "swap", "combo", "level objective").count { text.contains(it) } >= 2 -> "Puzzle / match game"
         else -> "Unclassified mobile game"
     }
 }
