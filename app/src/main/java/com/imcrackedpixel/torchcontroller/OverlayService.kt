@@ -65,7 +65,8 @@ class OverlayService : Service() {
             val beforeObservation = live.getString("last_observation", "") ?: ""
             val beforeState = state
             val observedText = live.getString("last_observation", "") ?: ""
-            val interactionCue = listOf("interact", "talk to", "speak to", "press", "continue", "claim", "accept", "open", "enter", "confirm", "use").any { observedText.contains(it, true) }
+            val interactionCue = state.contains("LOOT VISIBLE", true) ||
+                listOf("talk to", "speak to", "interact", "pickup", "pick up", "claim reward", "accept quest", "open chest", "enter portal", "continue").any { observedText.contains(it, true) }
             val interactionPoint = interactParams
             if (interactionCue && interactionPoint != null) {
                 val x = interactionPoint.x + 32f * resources.displayMetrics.density
@@ -89,7 +90,10 @@ class OverlayService : Service() {
                 }, 1800L)
                 return
             }
-            val trySkill = combat && available.isNotEmpty() && (movementDirectionIndex % 4 != 3)
+            movementDirectionIndex += 1
+            // Basic ARPG rhythm: use a learned skill regularly during likely combat,
+            // but keep moving between casts so the player does not stand still forever.
+            val trySkill = combat && available.isNotEmpty() && (movementDirectionIndex % 3 != 0)
             if (trySkill) {
                 val index = chooseLearningButton(available)
                 val b = taps[index]; val p = params[index]
