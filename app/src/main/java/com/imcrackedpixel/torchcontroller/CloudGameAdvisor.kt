@@ -31,15 +31,16 @@ object CloudGameAdvisor {
             return
         }
         prefs.edit().putLong("last_request_at", now).apply()
+        // Copy before returning: the capture service recycles its frame immediately.
+        val snapshot = Bitmap.createScaledBitmap(frame, minOf(frame.width, 960), (frame.height * (minOf(frame.width, 960).toFloat() / frame.width)).toInt().coerceAtLeast(1), true)
         Thread {
             var connection: HttpURLConnection? = null
             try {
-                val scaled = Bitmap.createScaledBitmap(frame, minOf(frame.width, 960), (frame.height * (minOf(frame.width, 960).toFloat() / frame.width)).toInt().coerceAtLeast(1), true)
                 val bytes = java.io.ByteArrayOutputStream().use { out ->
-                    scaled.compress(Bitmap.CompressFormat.JPEG, 68, out)
+                    snapshot.compress(Bitmap.CompressFormat.JPEG, 68, out)
                     out.toByteArray()
                 }
-                if (scaled !== frame) scaled.recycle()
+                snapshot.recycle()
                 val image = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
                 val prompt = """You are Torch AI's game analyst. Inspect this mobile gameplay screenshot.
 Return concise JSON only with keys: scene, likely_goal, suggested_next_step, confidence (0 to 1), evidence.
@@ -82,6 +83,7 @@ Remember this is a screenshot, not a full game-state feed."""
             } catch (e: Exception) {
                 prefs.edit().putString("last_error", (e.message ?: "Cloud analysis failed").take(240)).apply()
             } finally {
+                if (!snapshot.isRecycled) snapshot.recycle()
                 connection?.disconnect()
                 inFlight.set(false)
             }
