@@ -72,13 +72,17 @@ object RoutineController {
         val until = prefs.getLong("action_until", 0L)
         var direction = prefs.getInt("held_direction", -1)
         val mapDirection = MinimapNavigation.suggestedDirection(c)
+        // Once a route has failed, stop blindly trusting the same minimap bearing
+        // or least-visited cell. TorchGameAgent scores the eight joystick directions
+        // from recent movement outcomes and deliberately switches to an untested route.
+        val recoveryDirection = if (noProgress >= 2) TorchGameAgent.chooseDirection(c) else null
         val shouldChoose = direction !in 0..7 || now >= until || noProgress >= 2 ||
             (mapDirection != null && mapDirection != direction && now >= prefs.getLong("map_hold_until", 0L))
         if (shouldChoose) {
-            direction = mapDirection ?: MinimapNavigation.explorationDirection(c) ?: TorchGameAgent.chooseDirection(c)
+            direction = recoveryDirection ?: mapDirection ?: MinimapNavigation.explorationDirection(c) ?: TorchGameAgent.chooseDirection(c)
             val hold = when {
-                noProgress >= 5 -> 2200L
-                noProgress >= 2 -> 3800L
+                noProgress >= 5 -> 1450L
+                noProgress >= 2 -> 2600L
                 else -> 7200L
             }
             prefs.edit().putInt("held_direction", direction).putLong("action_until", now + hold)
@@ -87,7 +91,7 @@ object RoutineController {
         val reason = when {
             combat -> "Combat routine: reposition in a steady direction between skill tests"
             mapDirection != null -> "Following the current minimap bearing; hold course and verify movement"
-            noProgress >= 2 -> "Progress stalled; change route and test a different direction"
+            noProgress >= 2 -> "Route failed; avoid the repeated bearing and test a different joystick direction"
             else -> "Exploration routine: hold this route, observe the result, then choose the next route"
         }
         return save(c, "MOVE", reason, direction, -1)
