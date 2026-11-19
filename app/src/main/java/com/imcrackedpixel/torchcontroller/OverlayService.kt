@@ -32,6 +32,8 @@ class OverlayService : Service() {
     private var aiWaitingForResult = false
     private var movementAnchor: Button? = null
     private var movementParams: WindowManager.LayoutParams? = null
+    private var interactButton: Button? = null
+    private var interactParams: WindowManager.LayoutParams? = null
     private var movementDirectionIndex = 0
     private val aiPlayLoop: Runnable = object : Runnable {
         override fun run() {
@@ -45,6 +47,31 @@ class OverlayService : Service() {
             val beforeBars = live.getInt("enemy_bar_count", -1)
             val beforeObservation = live.getString("last_observation", "") ?: ""
             val beforeState = state
+            val observedText = live.getString("last_observation", "") ?: ""
+            val interactionCue = listOf("interact", "talk to", "speak to", "press", "continue", "claim", "accept", "open", "enter", "confirm", "use").any { observedText.contains(it, true) }
+            val interactionPoint = interactParams
+            if (interactionCue && interactionPoint != null) {
+                val x = interactionPoint.x + 32f * resources.displayMetrics.density
+                val y = interactionPoint.y + 32f * resources.displayMetrics.density
+                svc.tapAt(x, y)
+                aiWaitingForResult = true
+                status?.text = "AI testing mapped interaction control"
+                handler.postDelayed({
+                    if (!aiPlaying) { aiWaitingForResult = false; return@postDelayed }
+                    val afterText = getSharedPreferences("live_teaching", MODE_PRIVATE).getString("last_observation", "") ?: ""
+                    val history = JSONArray(memoryPrefs.getString("interaction_learning", "[]") ?: "[]")
+                    history.put(JSONObject().apply {
+                        put("time", System.currentTimeMillis())
+                        put("screen_changed", beforeObservation != afterText)
+                        put("evidence", if (beforeObservation != afterText) "visible text changed after interaction tap; uncertain correlation" else "no visible text change")
+                    })
+                    while (history.length() > 80) history.remove(0)
+                    memoryPrefs.edit().putString("interaction_learning", history.toString()).apply()
+                    aiWaitingForResult = false
+                    handler.postDelayed(aiPlayLoop, 650L)
+                }, 1800L)
+                return
+            }
             val trySkill = combat && available.isNotEmpty() && (movementDirectionIndex % 4 != 3)
             if (trySkill) {
                 val index = chooseLearningButton(available)
@@ -171,6 +198,28 @@ class OverlayService : Service() {
             }
         }
         wm.addView(moveButton,moveLp)
+
+        val interact = Button(this).apply { text="I\\nUSE"; textSize=11f; isAllCaps=false; setTextColor(Color.WHITE); setBackgroundColor(0xCCB36B24.toInt()) }
+        val interactLp = WindowManager.LayoutParams((64*density).roundToInt(),(64*density).roundToInt(),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply {
+            gravity=Gravity.TOP or Gravity.LEFT
+            x=prefs.getInt("interact_x",(resources.displayMetrics.widthPixels-90*density).roundToInt())
+            y=prefs.getInt("interact_y",(resources.displayMetrics.heightPixels-190*density).roundToInt())
+        }
+        interactButton=interact; interactParams=interactLp
+        var interactDownX=0f; var interactDownY=0f; var interactStartX=0; var interactStartY=0; var interactDragged=false
+        interact.setOnTouchListener { v,e ->
+            when(e.action) {
+                MotionEvent.ACTION_DOWN -> { interactDownX=e.rawX; interactDownY=e.rawY; interactStartX=interactLp.x; interactStartY=interactLp.y; interactDragged=false; true }
+                MotionEvent.ACTION_MOVE -> {
+                    if(kotlin.math.abs(e.rawX-interactDownX)>8*density || kotlin.math.abs(e.rawY-interactDownY)>8*density) interactDragged=true
+                    if(interactDragged){interactLp.x=interactStartX+(e.rawX-interactDownX).roundToInt();interactLp.y=interactStartY+(e.rawY-interactDownY).roundToInt();wm.updateViewLayout(v,interactLp)}
+                    true
+                }
+                MotionEvent.ACTION_UP -> { if(interactDragged) prefs.edit().putInt("interact_x",interactLp.x).putInt("interact_y",interactLp.y).apply(); true }
+                else -> true
+            }
+        }
+        wm.addView(interact,interactLp)
         panel=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(8,8,8,8); setBackgroundColor(0xDD20252B.toInt()) }
         status=TextView(this).apply { text="Tap bubbles to enable · drag to move"; setTextColor(Color.WHITE); textSize=12f }
         panel.addView(status)
@@ -326,6 +375,7 @@ class OverlayService : Service() {
         stopAutomation("Pausing other automation for AI play")
         aiPlaying = true; aiWaitingForResult = false
         movementAnchor?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+        interactButton?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         status?.text = "AI GO · learning continuously · STOP AI to end"
         handler.post(aiPlayLoop)
     }
@@ -334,6 +384,7 @@ class OverlayService : Service() {
         aiPlaying = false
         aiWaitingForResult = false
         movementAnchor?.let { if (!it.isAttachedToWindow) try { wm.addView(it, movementParams) } catch (_: Exception) {} }
+        interactButton?.let { if (!it.isAttachedToWindow) try { wm.addView(it, interactParams) } catch (_: Exception) {} }
         handler.removeCallbacks(aiPlayLoop)
         status?.text = message
     }
@@ -402,6 +453,6 @@ class OverlayService : Service() {
     private fun updateStatus(){ status?.text=if(running) "Running · "+enabled.count{it}+" active · STOP ALL" else "Tap bubbles to enable · drag to move" }
     private fun stopAutomation(message:String){stopAiPlay(message);running=false;for(i in 0..3)handler.removeCallbacks(loops[i]);stopReplay();status?.text=message}
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int)=START_STICKY
-    override fun onDestroy(){recording=false;stopAutomation("Controller closed");for(b in taps)if(b?.isAttachedToWindow==true)wm.removeView(b);movementAnchor?.let{if(it.isAttachedToWindow)wm.removeView(it)};if(::panel.isInitialized&&panel.isAttachedToWindow)wm.removeView(panel);super.onDestroy()}
+    override fun onDestroy(){recording=false;stopAutomation("Controller closed");for(b in taps)if(b?.isAttachedToWindow==true)wm.removeView(b);movementAnchor?.let{if(it.isAttachedToWindow)wm.removeView(it)};interactButton?.let{if(it.isAttachedToWindow)wm.removeView(it)};if(::panel.isInitialized&&panel.isAttachedToWindow)wm.removeView(panel);super.onDestroy()}
     override fun onBind(intent:Intent?):IBinder?=null
 }
