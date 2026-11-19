@@ -212,7 +212,13 @@ class VisualRecognitionService : Service() {
             } else {
                 learnedPrefs.edit().putInt("enemy_bar_count", 0).apply()
             }
-            observeGeneralGameplay(text, torchSignals, objects.size)
+            val objectDetails = objects.map { detected ->
+                val labels = detected.labels.map { label -> label.text + ":" + String.format(java.util.Locale.US, "%.2f", label.confidence) }
+                val box = detected.boundingBox
+                val label = labels.joinToString(",").ifBlank { "unlabelled object" }
+                label + "@" + box.centerX() + "," + box.centerY() + "," + box.width() + "," + box.height()
+            }
+            observeGeneralGameplay(text, torchSignals, objectDetails, bitmap.width, bitmap.height)
             val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text }, enemyBars)
             updateHighlights(ocrLines, bitmap.width, bitmap.height, teachCandidate, enemyBars)
             if (teachCandidate != null) askTeachQuestion(teachCandidate.first, teachCandidate.second)
@@ -533,10 +539,17 @@ class VisualRecognitionService : Service() {
 
     // Builds a compact state estimate from OCR and first-pass HUD cues.
     // This is evidence tracking, not proof of enemy defeat or skill effectiveness.
-    private fun observeGeneralGameplay(lines: List<String>, cues: List<String>, objectCount: Int) {
+    private fun observeGeneralGameplay(lines: List<String>, cues: List<String>, objectDetails: List<String>, screenWidth: Int, screenHeight: Int) {
         val current = lines.joinToString(" | ").take(900)
         if (current.isBlank() && cues.isEmpty() && objectCount == 0) return
-        val summary = GameplayStateTracker.observe(this, lines, cues, objectCount)
+        val summary = GameplayStateTracker.observe(this, lines, cues, objectDetails.size)
+        val brain = TorchAiBrain.observe(this, lines, cues, objectDetails, screenWidth, screenHeight)
+        learnedPrefs.edit()
+            .putString("ai_brain_summary", TorchAiBrain.summary(this))
+            .putString("ai_scene_key", brain.sceneKey)
+            .putString("ai_phase", brain.phase)
+            .putString("ai_candidate_objective", brain.objective)
+            .apply()
         currentObservation = summary
         val now = System.currentTimeMillis()
         val changed = current != lastScreenText
