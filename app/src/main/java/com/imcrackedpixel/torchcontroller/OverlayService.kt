@@ -33,7 +33,7 @@ class OverlayService : Service() {
     private var movementAnchor: Button? = null
     private var movementParams: WindowManager.LayoutParams? = null
     private var movementDirectionIndex = 0
-    private val aiPlayLoop = object : Runnable {
+    private val aiPlayLoop: Runnable = object : Runnable {
         override fun run() {
             if (!aiPlaying || aiWaitingForResult) return
             val state = getSharedPreferences("live_teaching", MODE_PRIVATE).getString("last_state", "") ?: ""
