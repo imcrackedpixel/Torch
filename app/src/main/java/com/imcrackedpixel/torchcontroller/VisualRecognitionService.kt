@@ -550,6 +550,7 @@ class VisualRecognitionService : Service() {
         val summary = GameplayStateTracker.observe(this, lines, cues, objectDetails.size)
         val brain = TorchAiBrain.observe(this, lines, cues, objectDetails, screenWidth, screenHeight)
         TorchGameAgent.observeScene(this, lines, objectDetails, screenWidth, screenHeight)
+        EndgameGameBrain.observe(this, lines, cues, objectDetails, screenWidth, screenHeight)
         // Preserve the actual OCR and visual cues for the controller. Previously
         // the action planner received only a shortened summary, so it often missed
         // the game's real prompts and objective wording.
