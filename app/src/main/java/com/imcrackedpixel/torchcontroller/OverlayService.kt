@@ -193,10 +193,10 @@ class OverlayService : Service() {
         val density=resources.displayMetrics.density
         for(i in 0..3) {
             val button=Button(this).apply { text="T"+(i+1)+"\nOFF"; textSize=12f; setTextColor(Color.WHITE); setBackgroundColor(0xCC334455.toInt()); isAllCaps=false }
-            val lp=WindowManager.LayoutParams((64*density).roundToInt(),(64*density).roundToInt(),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply {
+            val lp=WindowManager.LayoutParams((54*density).roundToInt(),(54*density).roundToInt(),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply {
                 gravity=Gravity.TOP or Gravity.LEFT
-                x=prefs.getInt("x"+i,(70+i*72)*density.roundToInt())
-                y=prefs.getInt("y"+i,(220+i*12)*density.roundToInt())
+                x=prefs.getInt("x"+i,((70+i*60)*density).roundToInt())
+                y=prefs.getInt("y"+i,((220+i*12)*density).roundToInt())
             }
             params[i]=lp; taps[i]=button
             var downX=0f; var downY=0f; var startX=0; var startY=0; var dragged=false
@@ -357,6 +357,14 @@ class OverlayService : Service() {
             }
         })
         content.addView(Button(this).apply {
+            text = "TORCHLIGHT BUILD ADVISOR"
+            setOnClickListener {
+                val liveText = getSharedPreferences("live_teaching", MODE_PRIVATE)
+                    .getString("raw_ocr_lines", "") ?: ""
+                status?.text = TorchlightProgressAdvisor.advice(this@OverlayService, liveText)
+            }
+        })
+        content.addView(Button(this).apply {
             text = "SHOW LEARNING REPORT"
             setOnClickListener { status?.text = TorchGameAgent.report(this@OverlayService) }
         })
@@ -485,6 +493,7 @@ class OverlayService : Service() {
         movementAnchor?.let { if (!it.isAttachedToWindow) try { wm.addView(it, movementParams) } catch (_: Exception) {} }
         interactButton?.let { if (!it.isAttachedToWindow) try { wm.addView(it, interactParams) } catch (_: Exception) {} }
         handler.removeCallbacks(aiPlayLoop)
+        updateAiToggle()
         status?.text = message
     }
 
