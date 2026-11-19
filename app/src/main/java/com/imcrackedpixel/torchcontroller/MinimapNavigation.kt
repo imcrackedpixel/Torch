@@ -62,6 +62,26 @@ object MinimapNavigation {
         return note
     }
 
+    data class MarkerSnapshot(val x: Float, val y: Float, val seenAt: Long)
+
+    fun snapshot(context: Context): MarkerSnapshot? {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val seen = p.getLong("player_seen_at", 0L)
+        if (seen == 0L || System.currentTimeMillis() - seen > 5000L) return null
+        return MarkerSnapshot(p.getFloat("player_x", 0f), p.getFloat("player_y", 0f), seen)
+    }
+
+    /** Null means the minimap marker was not confidently tracked for this test. */
+    fun didPlayerMove(context: Context, before: MarkerSnapshot?): Boolean? {
+        if (before == null) return null
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val seen = p.getLong("player_seen_at", 0L)
+        if (seen <= before.seenAt || System.currentTimeMillis() - seen > 5000L) return null
+        val dx = p.getFloat("player_x", before.x) - before.x
+        val dy = p.getFloat("player_y", before.y) - before.y
+        return (dx * dx + dy * dy) > 0.00009f
+    }
+
     fun suggestedDirection(context: Context): Int? {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
