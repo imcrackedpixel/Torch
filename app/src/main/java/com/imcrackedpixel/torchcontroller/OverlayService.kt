@@ -49,8 +49,8 @@ class OverlayService : Service() {
                 handler.postDelayed(this, 2200L)
                 return
             }
-            if (phase == "MENU" || phase == "RECOVERY") {
-                status?.text = "AI paused · menu or recovery screen detected"
+            if (phase == "RECOVERY") {
+                status?.text = "AI paused · recovery screen detected; waiting for player"
                 handler.postDelayed(this, 3000L)
                 return
             }
@@ -79,6 +79,11 @@ class OverlayService : Service() {
             }
             val interactionCue = decision.action == "INTERACT"
             val interactionPoint = interactParams
+            if (interactionCue && interactionPoint == null) {
+                status?.text = "AI found an interaction prompt · place I on that game's interact/start button"
+                handler.postDelayed(this, 2200L)
+                return
+            }
             if (interactionCue && interactionPoint != null) {
                 val x = interactionPoint.x + 32f * resources.displayMetrics.density
                 val y = interactionPoint.y + 32f * resources.displayMetrics.density
