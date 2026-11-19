@@ -86,7 +86,7 @@ object TorchGameAgent {
     }
 
     fun plan(context: Context, phase: String, state: String, text: String, enemyBars: Int, availableSkills: List<Int>): Decision =
-        EndgameGameBrain.plan(context, phase, state, text, enemyBars, availableSkills)
+        RoutineController.plan(context, phase, state, text, enemyBars, availableSkills)
 
     @Suppress("unused")
     private fun legacyPlan(context: Context, phase: String, state: String, text: String, enemyBars: Int, availableSkills: List<Int>): Decision {
