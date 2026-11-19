@@ -379,11 +379,11 @@ class OverlayService : Service() {
             }
         })
         content.addView(Button(this).apply {
-            text = "GO AI (LEARN & PLAY)"
+            text = "PLAY · LEARN & EXPLORE"
             setOnClickListener { startAiPlay() }
         })
         content.addView(Button(this).apply {
-            text = "STOP AI"
+            text = "STOP PLAYING"
             setOnClickListener { stopAiPlay("AI play stopped by you") }
         })
         content.addView(Button(this).apply {
@@ -501,11 +501,12 @@ class OverlayService : Service() {
 
     private fun updateAiToggle() {
         aiToggleButton?.apply {
-            text = if (aiPlaying) "AI ON" else "AI OFF"
+            text = if (aiPlaying) "STOP" else "PLAY"
             setBackgroundColor(if (aiPlaying) 0xFF267A42.toInt() else 0xFF8E3434.toInt())
         }
     }
-\n    private fun recordAction(index: Int, x: Float, y: Float) {
+
+    private fun recordAction(index: Int, x: Float, y: Float) {
         if (!recording) return
         try {
             val events = JSONArray(memoryPrefs.getString("events", "[]") ?: "[]")
