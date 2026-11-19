@@ -105,13 +105,19 @@ object TorchAiBrain {
     }
 
     fun chooseMovementDirection(context: Context): Int {
+        val p = prefs(context)
         val scores = actionScores(context, "move")
-        val unexplored = (0..7).filter { (scores.optJSONObject(it.toString())?.optInt("trials", 0) ?: 0) < 3 }
-        if (unexplored.isNotEmpty()) return unexplored.minByOrNull { scores.optJSONObject(it.toString())?.optInt("trials", 0) ?: 0 } ?: 0
-        return (0..7).maxByOrNull { direction ->
+        val recent = try { JSONArray(p.getString("recent_move_directions", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+        val avoid = (0 until recent.length()).mapNotNull { recent.optInt(it, -1).takeIf { v -> v in 0..7 } }.toSet()
+        val candidates = (0..7).filter { it !in avoid }.ifEmpty { (0..7).toList() }
+        // Prefer directions with fewer failed trials. Rotate away from the last few
+        // attempts instead of cycling through the same eight directions forever.
+        return candidates.minByOrNull { direction ->
             val item = scores.optJSONObject(direction.toString()) ?: JSONObject()
-            val trials = item.optInt("trials", 0).coerceAtLeast(1)
-            (item.optInt("positive", 0) - item.optInt("negative", 0) * 0.7 + 0.2).toDouble() / (trials + 0.5)
+            val trials = item.optInt("trials", 0)
+            val failures = item.optInt("negative", 0)
+            val successes = item.optInt("positive", 0)
+            failures * 3.0 + successes * -0.8 + trials * 0.12
         } ?: 0
     }
 
@@ -128,6 +134,15 @@ object TorchAiBrain {
         item.put("last_time", System.currentTimeMillis())
         scores.put(key, item)
         p.edit().putString("scores_$kind", scores.toString()).apply()
+
+        if (kind == "move") {
+            val recent = try { JSONArray(p.getString("recent_move_directions", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+            recent.put(key.toIntOrNull() ?: -1)
+            while (recent.length() > 4) recent.remove(0)
+            p.edit().putString("recent_move_directions", recent.toString())
+                .putInt("movement_no_change_streak", if (changed) 0 else p.getInt("movement_no_change_streak", 0) + 1)
+                .apply()
+        }
 
         val history = try { JSONArray(p.getString("action_history", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
         history.put(JSONObject().apply {
