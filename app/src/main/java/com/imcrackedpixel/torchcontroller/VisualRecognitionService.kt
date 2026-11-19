@@ -549,6 +549,7 @@ class VisualRecognitionService : Service() {
             .putString("ai_scene_key", brain.sceneKey)
             .putString("ai_phase", brain.phase)
             .putString("ai_candidate_objective", brain.objective)
+            .putLong("last_observed_at", System.currentTimeMillis())
             .apply()
         currentObservation = summary
         val now = System.currentTimeMillis()
