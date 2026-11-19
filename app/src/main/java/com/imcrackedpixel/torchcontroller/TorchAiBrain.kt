@@ -95,7 +95,7 @@ object TorchAiBrain {
     fun chooseSkill(context: Context, available: List<Int>): Int {
         if (available.isEmpty()) return -1
         val scores = actionScores(context, "skill")
-        val unexplored = available.filter { scores.optJSONObject((it + 1).toString())?.optInt("trials", 0) ?: 0 < 3 }
+        val unexplored = available.filter { (scores.optJSONObject((it + 1).toString())?.optInt("trials", 0) ?: 0) < 3 }
         if (unexplored.isNotEmpty()) return unexplored.minByOrNull { scores.optJSONObject((it + 1).toString())?.optInt("trials", 0) ?: 0 } ?: unexplored.first()
         return available.maxByOrNull { index ->
             val item = scores.optJSONObject((index + 1).toString()) ?: JSONObject()
@@ -106,7 +106,7 @@ object TorchAiBrain {
 
     fun chooseMovementDirection(context: Context): Int {
         val scores = actionScores(context, "move")
-        val unexplored = (0..7).filter { scores.optJSONObject(it.toString())?.optInt("trials", 0) ?: 0 < 3 }
+        val unexplored = (0..7).filter { (scores.optJSONObject(it.toString())?.optInt("trials", 0) ?: 0) < 3 }
         if (unexplored.isNotEmpty()) return unexplored.minByOrNull { scores.optJSONObject(it.toString())?.optInt("trials", 0) ?: 0 } ?: 0
         return (0..7).maxByOrNull { direction ->
             val item = scores.optJSONObject(direction.toString()) ?: JSONObject()
