@@ -58,6 +58,12 @@ class OverlayService : Service() {
                 stopAiPlay("Possible completion screen detected · check the game")
                 return
             }
+            val learningGate = GameUnderstandingEngine.preflightMessage(this@OverlayService)
+            if (learningGate != null) {
+                status?.text = learningGate
+                handler.postDelayed(this, 1800L)
+                return
+            }
             val available = (0..3).filter { enabled[it] }
             val svc = TouchService.instance
             if (svc == null) { stopAiPlay("Accessibility disconnected · press GO again when restored"); return }
