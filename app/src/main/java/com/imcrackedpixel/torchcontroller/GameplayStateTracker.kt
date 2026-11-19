@@ -66,8 +66,12 @@ object GameplayStateTracker {
         val previous = prefs.getString("last_state", "") ?: ""
         val changed = previous.isNotBlank() && previous != state
         val evidence = cueText.ifBlank { "No strong HUD cue" }
+        val gameSnapshot = GameLearningEngine.observe(context, lines, cues)
         val quest = (prefs.getString("quest_objective_text", "") ?: "").takeIf { it.isNotBlank() }?.let { " · Quest text: $it" } ?: ""
-        val summary = "$state · confidence $confidence · objects detected: $objectCount$quest"
+        val generic = " · Game brain: ${gameSnapshot.phase}" +
+            (if (gameSnapshot.objective.isNotBlank()) " · Candidate objective: ${gameSnapshot.objective}" else "") +
+            (if (gameSnapshot.interactionHint.isNotBlank()) " · Possible interaction: ${gameSnapshot.interactionHint}" else "")
+        val summary = "$state · confidence $confidence · objects detected: $objectCount$quest$generic"
         val detail = "$summary\nEvidence: $evidence\nNext: $next" + if (changed) "\nState change: $previous → $state" else ""
         val raw = lines.joinToString(" | ").take(180)
         prefs.edit()
