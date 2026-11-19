@@ -46,7 +46,7 @@ object GameplayStateTracker {
                 confidence = if (cues.any { it.contains("enemy/combat", true) }) "medium" else "low"
                 next = "Watch the same health-bar area before and after one skill"
             }
-            listOf("inventory", "settings", "quest", "map", "equipment", "select skill").any { text.contains(it) } -> {
+            listOf("inventory", "settings", "equipment", "select skill", "paused", "main menu", "options menu").any { text.contains(it) } -> {
                 state = "MENU OR QUEST"
                 confidence = "medium"
                 next = "Pause automatic taps while a menu or quest screen is open"
