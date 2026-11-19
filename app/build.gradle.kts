@@ -9,8 +9,8 @@ android {
         applicationId = "com.imcrackedpixel.torchcontroller"
         minSdk = 26
         targetSdk = 32
-        versionCode = 19
-        versionName = "1.7.0"
+        versionCode = 20
+        versionName = "1.8.0"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
