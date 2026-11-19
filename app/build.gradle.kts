@@ -6,11 +6,11 @@ android {
     namespace = "com.imcrackedpixel.torchcontroller"
     compileSdk = 35
     defaultConfig {
-        applicationId = "com.imcrackedpixel.torchcontroller.fresh"
+        applicationId = "com.imcrackedpixel.torchcontroller"
         minSdk = 26
         targetSdk = 32
-        versionCode = 23
-        versionName = "1.10.0"
+        versionCode = 24
+        versionName = "1.11.0"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
