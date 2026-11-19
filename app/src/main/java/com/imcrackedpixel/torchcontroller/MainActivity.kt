@@ -102,9 +102,9 @@ class MainActivity : Activity() {
         content.addView(Button(this).apply {
             text = "View what AI has learned"
             setOnClickListener {
-                val report = GameUnderstandingEngine.report(this@MainActivity) + "\\n\\n" +
-                    MinimapNavigation.report(this@MainActivity) + "\\n\\n" +
-                    RoutineController.report(this@MainActivity) + "\\n\\n" +
+                val report = GameUnderstandingEngine.report(this@MainActivity) + "\n\n" +
+                    MinimapNavigation.report(this@MainActivity) + "\n\n" +
+                    RoutineController.report(this@MainActivity) + "\n\n" +
                     TorchGameAgent.report(this@MainActivity)
                 android.app.AlertDialog.Builder(this@MainActivity)
                     .setTitle("Torch AI · Game knowledge")
