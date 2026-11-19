@@ -34,7 +34,7 @@ class MainActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
         root.addView(TextView(this).apply {
-            text = "TORCH CONTROLLER\n\nLIVE TEACH AI\nStart screen capture, allow display-over-other-apps, then open Torchlight. A floating TEACH AI panel watches gameplay and asks questions when it spots possible enemies or loot. Your YES/NO answers are saved on this device. Nothing is uploaded and learning does not perform game taps."
+            text = "TORCH CONTROLLER\n\nLIVE TEACH AI\nStart screen capture, allow display-over-other-apps, then open Torchlight. The TEACH AI panel watches gameplay and saves your answers locally. The floating controller can use GO AI to tap enabled skills continuously; press STOP AI or STOP ALL to stop it. Screen recognition is approximate and nothing is uploaded."
             textSize = 17f
         })
         status = TextView(this).apply {
