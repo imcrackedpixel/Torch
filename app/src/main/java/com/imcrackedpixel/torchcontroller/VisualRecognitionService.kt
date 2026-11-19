@@ -170,7 +170,7 @@ class VisualRecognitionService : Service() {
                     stopSelf()
                 }
             }, handler)
-            sendStatus("Watching screen. Live Teach AI is ready. Nothing is uploaded.")
+            sendStatus(if (getSharedPreferences("cloud_ai_settings", MODE_PRIVATE).getString("groq_api_key", "").isNullOrBlank()) "Watching screen. Cloud AI is off; screenshots stay on this phone." else "Watching screen. Groq vision is enabled; occasional screenshots will be sent for analysis.")
             mainHandler.post { buildTeachOverlay() }
             handler?.post(captureLoop)
         } catch (e: Exception) {
