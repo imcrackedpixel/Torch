@@ -35,7 +35,7 @@ class BotAccessibilityService : AccessibilityService() {
   val dm=resources.displayMetrics
   return pct/100f*(if(key.endsWith("_x")) dm.widthPixels else dm.heightPixels)
  }
- private val step=object:Runnable {
+ private val step: Runnable = object:Runnable {
   override fun run() {
    if(!active)return
    val p=getSharedPreferences("bot_config",MODE_PRIVATE)
