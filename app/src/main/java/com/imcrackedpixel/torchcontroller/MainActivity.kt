@@ -34,7 +34,7 @@ class MainActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
         root.addView(TextView(this).apply {
-            text = "TORCH CONTROLLER\n\nLIVE TEACH AI\nStart screen capture, allow display-over-other-apps, then open Torchlight. The TEACH AI panel watches gameplay and saves your answers locally. The floating controller can use GO AI to tap enabled skills continuously; press STOP AI or STOP ALL to stop it. Screen recognition is approximate and nothing is uploaded."
+            text = "TORCH AI · 0.7.0\n\nStart Live Teach AI and approve screen capture. Enable gesture accessibility and display-over-other-apps, then show the floating controller. In your game, drag M onto the movement joystick, I onto the interaction button, and T1–T4 onto your skills. Press GO AI to let it observe, experiment and remember locally. Keep the game visible and the phone awake while testing. STOP AI ends autonomous actions. Recognition and progress estimates are experimental; nothing is uploaded."
             textSize = 17f
         })
         status = TextView(this).apply {
@@ -65,12 +65,6 @@ class MainActivity : Activity() {
             setOnClickListener {
                 stopService(Intent(this@MainActivity, VisualRecognitionService::class.java))
                 status.text = "Recognition stopped."
-            }
-        })
-        root.addView(Button(this).apply {
-            text = "Allow display over other apps"
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             }
         })
         root.addView(Button(this).apply {
