@@ -229,7 +229,7 @@ class VisualRecognitionService : Service() {
                 askTeachQuestion(teachCandidate.first, teachCandidate.second)
             }
             // Keep detailed OCR/object data internal; never dump raw screen text into the app UI.
-            sendStatus("Watching screen · learning locally")
+            sendStatus(understanding.summary)
             bitmap.recycle()
             processing.set(false)
         }
@@ -548,6 +548,7 @@ class VisualRecognitionService : Service() {
     private fun observeGeneralGameplay(lines: List<String>, cues: List<String>, objectDetails: List<String>, screenWidth: Int, screenHeight: Int) {
         val current = lines.joinToString(" | ").take(900)
         if (current.isBlank() && cues.isEmpty() && objectDetails.isEmpty()) return
+        val understanding = GameUnderstandingEngine.observe(this, lines, cues, objectDetails, screenWidth, screenHeight)
         val summary = GameplayStateTracker.observe(this, lines, cues, objectDetails.size)
         val brain = TorchAiBrain.observe(this, lines, cues, objectDetails, screenWidth, screenHeight)
         TorchGameAgent.observeScene(this, lines, objectDetails, screenWidth, screenHeight)
@@ -556,6 +557,7 @@ class VisualRecognitionService : Service() {
         // the action planner received only a shortened summary, so it often missed
         // the game's real prompts and objective wording.
         learnedPrefs.edit()
+            .putString("game_understanding_summary", understanding.summary)
             .putString("ai_brain_summary", TorchAiBrain.summary(this))
             .putString("ai_scene_key", brain.sceneKey)
             .putString("ai_phase", brain.phase)
