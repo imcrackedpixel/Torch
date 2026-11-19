@@ -102,6 +102,7 @@ class OverlayService : Service() {
                     })
                     while (history.length() > 80) history.remove(0)
                     memoryPrefs.edit().putString("interaction_learning", history.toString()).apply()
+                    EndgameGameBrain.recordResult(this@OverlayService, "INTERACT", "mapped", beforeObservation, afterText)
                     aiWaitingForResult = false
                     handler.postDelayed(aiPlayLoop, 650L)
                 }, 1800L)
@@ -125,6 +126,7 @@ class OverlayService : Service() {
                         if (!aiPlaying) { aiWaitingForResult = false; return@postDelayed }
                         val after = getSharedPreferences("live_teaching", MODE_PRIVATE)
                         recordAiOutcome(index, beforeBars, after.getInt("enemy_bar_count", -1), beforeObservation, after.getString("last_observation", "") ?: "")
+                        EndgameGameBrain.recordResult(this@OverlayService, "SKILL", (index + 1).toString(), beforeObservation, after.getString("last_observation", "") ?: "", beforeBars, after.getInt("enemy_bar_count", -1))
                         aiWaitingForResult = false
                         handler.postDelayed(aiPlayLoop, 500L)
                     }, 2200L)
@@ -152,6 +154,7 @@ class OverlayService : Service() {
                 val movementChanged = mapMoved ?: (beforeObservation != afterObservation)
                 recordMovementOutcome(dirIndex, beforeState, after.getString("last_state", "") ?: "", beforeObservation, afterObservation, mapMoved)
                 TorchGameAgent.recordMovement(this@OverlayService, dirIndex, movementChanged)
+                EndgameGameBrain.recordResult(this@OverlayService, "MOVE", dirIndex.toString(), beforeObservation, afterObservation, minimapMoved = mapMoved)
                 status?.text = when (mapMoved) {
                     true -> "AI moved · minimap position changed · testing next route"
                     false -> "AI may be blocked · minimap position did not change · trying another direction"
@@ -366,7 +369,7 @@ class OverlayService : Service() {
         content.addView(Button(this).apply {
             text = "SHOW LEARNING BRAIN"
             setOnClickListener {
-                val brain = TorchAiBrain.summary(this@OverlayService) + "\n\n" +
+                val brain = TorchAiBrain.summary(this@OverlayService) + "\n\n" + EndgameGameBrain.report(this@OverlayService) + "\n\n" +
                     (getSharedPreferences("live_teaching", MODE_PRIVATE).getString("brain_summary", "") ?: "")
                 status?.text = if (brain.isBlank()) {
                     "Learning brain is waiting for live screen recognition"
