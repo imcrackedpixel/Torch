@@ -222,8 +222,16 @@ class OverlayService : Service() {
         val moveButton = Button(this).apply { text="M\nMOVE"; textSize=11f; isAllCaps=false; setTextColor(Color.WHITE); setBackgroundColor(0xCC6A4C93.toInt()) }
         val moveLp = WindowManager.LayoutParams((64*density).roundToInt(),(64*density).roundToInt(),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply {
             gravity=Gravity.TOP or Gravity.LEFT
-            x=prefs.getInt("move_x",(24*density).roundToInt())
-            y=prefs.getInt("move_y",(resources.displayMetrics.heightPixels-190*density).roundToInt())
+            x=prefs.getInt("move_x",(20*density).roundToInt())
+            y=prefs.getInt("move_y",(resources.displayMetrics.heightPixels-132*density).roundToInt())
+        }
+        // One-time migration moves M from the old mid-screen default to the
+        // usual bottom-left ARPG joystick. The user can still drag it afterwards.
+        if (!prefs.getBoolean("minimap_anchor_v2", false)) {
+            moveLp.x = (20*density).roundToInt()
+            moveLp.y = (resources.displayMetrics.heightPixels-132*density).roundToInt()
+            prefs.edit().putInt("move_x", moveLp.x).putInt("move_y", moveLp.y)
+                .putBoolean("minimap_anchor_v2", true).apply()
         }
         movementAnchor=moveButton; movementParams=moveLp
         var moveDownX=0f; var moveDownY=0f; var moveStartX=0; var moveStartY=0; var moveDragged=false
