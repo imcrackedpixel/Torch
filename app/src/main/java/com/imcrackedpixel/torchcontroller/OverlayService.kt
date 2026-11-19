@@ -72,10 +72,9 @@ class OverlayService : Service() {
                 Pair(0f, -42f), Pair(30f, -30f), Pair(42f, 0f), Pair(30f, 30f),
                 Pair(0f, 42f), Pair(-30f, 30f), Pair(-42f, 0f), Pair(-30f, -30f)
             )
-            val direction = directions[movementDirectionIndex % directions.size]
-            val dirIndex = movementDirectionIndex % directions.size
-            movementDirectionIndex = (movementDirectionIndex + 1) % directions.size
-            svc.moveJoystick(anchor.x + 32f, anchor.y + 32f, direction.first * resources.displayMetrics.density, direction.second * resources.displayMetrics.density, 700L)
+            val dirIndex = chooseMovementDirection()
+            val direction = directions[dirIndex]
+            svc.moveJoystick(anchor.x + 32f * resources.displayMetrics.density, anchor.y + 32f * resources.displayMetrics.density, direction.first * resources.displayMetrics.density, direction.second * resources.displayMetrics.density, 700L)
             aiWaitingForResult = true
             status?.text = "AI exploring · movement direction " + (dirIndex + 1) + "/8"
             handler.postDelayed({
@@ -283,6 +282,25 @@ class OverlayService : Service() {
         } catch (_: Exception) {
             status?.text = "AI is playing · couldn't save this learning result"
         }
+    }
+
+    private fun chooseMovementDirection(): Int {
+        val history = try { JSONArray(memoryPrefs.getString("movement_learning", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+        val trials = IntArray(8)
+        val changes = IntArray(8)
+        for (i in 0 until history.length()) {
+            val item = history.optJSONObject(i) ?: continue
+            val d = item.optInt("direction", -1)
+            if (d in 0..7) {
+                trials[d]++
+                if (item.optBoolean("screen_changed", false)) changes[d]++
+            }
+        }
+        val unexplored = (0..7).filter { trials[it] < 3 }
+        if (unexplored.isNotEmpty()) return unexplored.minByOrNull { trials[it] } ?: 0
+        return (0..7).maxByOrNull { d ->
+            (changes[d].toDouble() + 0.25) / (trials[d].toDouble() + 1.0)
+        } ?: 0
     }
 
     private fun recordMovementOutcome(direction: Int, beforeState: String, afterState: String, beforeText: String, afterText: String) {
