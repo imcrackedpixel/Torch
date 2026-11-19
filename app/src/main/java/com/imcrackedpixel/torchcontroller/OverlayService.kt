@@ -15,6 +15,7 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -220,10 +221,45 @@ class OverlayService : Service() {
             }
         }
         wm.addView(interact,interactLp)
-        panel=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(8,8,8,8); setBackgroundColor(0xDD20252B.toInt()) }
+        panel=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(6,6,6,6); setBackgroundColor(0xEE20252B.toInt()) }
+        val panelParams=WindowManager.LayoutParams((236*density).roundToInt(),WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply {
+            gravity=Gravity.TOP or Gravity.RIGHT
+            x=prefs.getInt("menu_x",(8*density).roundToInt())
+            y=prefs.getInt("menu_y",(48*density).roundToInt())
+        }
+        val header = LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL
+            setBackgroundColor(0xFF303943.toInt()); setPadding(6,2,2,2)
+        }
+        val title = TextView(this).apply { text="TORCH CONTROLLER"; setTextColor(Color.WHITE); textSize=12f; setPadding(4,8,4,8) }
+        val collapse = Button(this).apply { text="−"; textSize=18f; isAllCaps=false; setTextColor(Color.WHITE); setBackgroundColor(0xFF46515D.toInt()); minWidth=(42*density).roundToInt() }
+        header.addView(title, LinearLayout.LayoutParams(0,(42*density).roundToInt(),1f))
+        header.addView(collapse, LinearLayout.LayoutParams((42*density).roundToInt(),(42*density).roundToInt()))
+        content.addView(header)
+        val scroll = ScrollView(this).apply { isFillViewport=false; isVerticalScrollBarEnabled=true; overScrollMode=ScrollView.OVER_SCROLL_IF_CONTENT_SCROLLS }
+        val content = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(2,4,2,4) }
+        scroll.addView(content)
+        content.addView(scroll, LinearLayout.LayoutParams(-1,(resources.displayMetrics.heightPixels*0.52f).roundToInt()))
+        collapse.setOnClickListener {
+            val hidden = scroll.visibility == android.view.View.VISIBLE
+            scroll.visibility = if (hidden) android.view.View.GONE else android.view.View.VISIBLE
+            collapse.text = if (hidden) "+" else "−"
+            panelParams.width = if (hidden) (58*density).roundToInt() else (236*density).roundToInt()
+            title.text = if (hidden) "TORCH" else "TORCH CONTROLLER"
+            wm.updateViewLayout(panel,panelParams)
+        }
+        var menuDownX=0f; var menuDownY=0f; var menuStartX=panelParams.x; var menuStartY=panelParams.y
+        title.setOnTouchListener { _,e ->
+            when(e.action) {
+                MotionEvent.ACTION_DOWN -> { menuDownX=e.rawX; menuDownY=e.rawY; menuStartX=panelParams.x; menuStartY=panelParams.y; true }
+                MotionEvent.ACTION_MOVE -> { panelParams.x=menuStartX+(menuDownX-e.rawX).roundToInt(); panelParams.y=menuStartY+(e.rawY-menuDownY).roundToInt(); wm.updateViewLayout(panel,panelParams); true }
+                MotionEvent.ACTION_UP -> { prefs.edit().putInt("menu_x",panelParams.x).putInt("menu_y",panelParams.y).apply(); true }
+                else -> true
+            }
+        }
         status=TextView(this).apply { text="Tap bubbles to enable · drag to move"; setTextColor(Color.WHITE); textSize=12f }
-        panel.addView(status)
-        panel.addView(Button(this).apply {
+        content.addView(status)
+        content.addView(Button(this).apply {
             text = "SHOW LEARNING BRAIN"
             setOnClickListener {
                 val brain = getSharedPreferences("live_teaching", MODE_PRIVATE)
@@ -233,7 +269,7 @@ class OverlayService : Service() {
                 } else brain
             }
         })
-        panel.addView(Button(this).apply {
+        content.addView(Button(this).apply {
             text = "START ACTION RECORDING"
             setOnClickListener {
                 recording = !recording
@@ -242,19 +278,19 @@ class OverlayService : Service() {
                 status?.text = if (recording) "Recording controller taps with screen context" else "Recording saved on this phone"
             }
         })
-        panel.addView(Button(this).apply {
+        content.addView(Button(this).apply {
             text = "GO AI (LEARN & PLAY)"
             setOnClickListener { startAiPlay() }
         })
-        panel.addView(Button(this).apply {
+        content.addView(Button(this).apply {
             text = "STOP AI"
             setOnClickListener { stopAiPlay("AI play stopped by you") }
         })
-        panel.addView(Button(this).apply {
+        content.addView(Button(this).apply {
             text = "REPLAY LAST RECORDING"
             setOnClickListener { replayLastRecording() }
         })
-        panel.addView(Button(this).apply {
+        content.addView(Button(this).apply {
             text = "CLEAR ACTION MEMORY"
             setOnClickListener {
                 stopReplay()
@@ -262,7 +298,7 @@ class OverlayService : Service() {
                 status?.text = "Action memory cleared"
             }
         })
-        for(i in 0..3) panel.addView(Button(this).apply {
+        for(i in 0..3) content.addView(Button(this).apply {
             text="T"+(i+1)+" cooldown: "+cooldowns[i]+"ms"
             setOnClickListener {
                 val index=cooldownChoices.indexOf(cooldowns[i]).let{if(it<0)0 else it}
@@ -270,13 +306,12 @@ class OverlayService : Service() {
                 text="T"+(i+1)+" cooldown: "+cooldowns[i]+"ms"
             }
         })
-        panel.addView(Button(this).apply { text="START ALL"; setOnClickListener {
+        content.addView(Button(this).apply { text="START ALL"; setOnClickListener {
             if(TouchService.instance==null){status?.text="Enable Accessibility first";return@setOnClickListener}
             if(!running){running=true; for(i in 0..3) if(enabled[i]) handler.post(loops[i]); updateStatus()}
         }})
-        panel.addView(Button(this).apply { text="STOP ALL"; setOnClickListener { stopAutomation("Stopped") } })
-        panel.addView(Button(this).apply { text="CLOSE"; setOnClickListener { stopSelf() } })
-        val panelParams=WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply { gravity=Gravity.TOP or Gravity.RIGHT; x=(8*density).roundToInt(); y=(48*density).roundToInt() }
+        content.addView(Button(this).apply { text="STOP ALL"; setOnClickListener { stopAutomation("Stopped") } })
+        content.addView(Button(this).apply { text="CLOSE"; setOnClickListener { stopSelf() } })
         wm.addView(panel,panelParams)
     }
     // Learns a cautious per-button preference from repeated, local screen observations.
