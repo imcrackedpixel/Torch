@@ -484,7 +484,8 @@ class OverlayService : Service() {
         aiPlaying = true; aiWaitingForResult = false
         movementAnchor?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         interactButton?.let { try { wm.removeView(it) } catch (_: Exception) {} }
-        updateAiToggle()\n        status?.text = "AI GO · learning continuously · STOP AI to end"
+        updateAiToggle()
+        status?.text = "AI GO · learning continuously · STOP AI to end"
         handler.post(aiPlayLoop)
     }
 
@@ -498,7 +499,13 @@ class OverlayService : Service() {
         status?.text = message
     }
 
-    private fun updateAiToggle() {\n        aiToggleButton?.apply {\n            text = if (aiPlaying) "AI ON" else "AI OFF"\n            setBackgroundColor(if (aiPlaying) 0xFF267A42.toInt() else 0xFF8E3434.toInt())\n        }\n    }\n\n    private fun recordAction(index: Int, x: Float, y: Float) {
+    private fun updateAiToggle() {
+        aiToggleButton?.apply {
+            text = if (aiPlaying) "AI ON" else "AI OFF"
+            setBackgroundColor(if (aiPlaying) 0xFF267A42.toInt() else 0xFF8E3434.toInt())
+        }
+    }
+\n    private fun recordAction(index: Int, x: Float, y: Float) {
         if (!recording) return
         try {
             val events = JSONArray(memoryPrefs.getString("events", "[]") ?: "[]")
