@@ -156,6 +156,7 @@ class OverlayService : Service() {
     private val replayTasks = mutableListOf<Runnable>()
     private val memoryPrefs by lazy { getSharedPreferences("game_action_memory", MODE_PRIVATE) }
     private var status: TextView? = null
+    private var aiToggleButton: Button? = null
     private val taps = arrayOfNulls<Button>(4)
     private val params = arrayOfNulls<WindowManager.LayoutParams>(4)
     private val cooldowns = longArrayOf(500, 1000, 1500, 2000)
@@ -260,6 +261,49 @@ class OverlayService : Service() {
             }
         }
         wm.addView(interact,interactLp)
+
+        // One prominent switch is the primary control; the detailed tools live in the collapsed panel.
+        val aiToggle = Button(this).apply {
+            text = "AI OFF"
+            textSize = 15f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setBackgroundColor(0xFF8E3434.toInt())
+            minWidth = (104*density).roundToInt()
+            setOnClickListener {
+                if (aiPlaying) stopAiPlay("AI stopped by you")
+                else startAiPlay()
+            }
+        }
+        val aiToggleLp = WindowManager.LayoutParams(
+            (116*density).roundToInt(), (54*density).roundToInt(),
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.LEFT
+            x = prefs.getInt("ai_toggle_x", (12*density).roundToInt())
+            y = prefs.getInt("ai_toggle_y", (72*density).roundToInt())
+        }
+        aiToggleButton = aiToggle
+        var toggleDownX=0f; var toggleDownY=0f; var toggleStartX=aiToggleLp.x; var toggleStartY=aiToggleLp.y; var toggleDragged=false
+        aiToggle.setOnTouchListener { v,e ->
+            when(e.action) {
+                MotionEvent.ACTION_DOWN -> { toggleDownX=e.rawX; toggleDownY=e.rawY; toggleStartX=aiToggleLp.x; toggleStartY=aiToggleLp.y; toggleDragged=false; true }
+                MotionEvent.ACTION_MOVE -> {
+                    if(kotlin.math.abs(e.rawX-toggleDownX)>10*density || kotlin.math.abs(e.rawY-toggleDownY)>10*density) toggleDragged=true
+                    if(toggleDragged) { aiToggleLp.x=toggleStartX+(e.rawX-toggleDownX).roundToInt(); aiToggleLp.y=toggleStartY+(e.rawY-toggleDownY).roundToInt(); wm.updateViewLayout(v,aiToggleLp) }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if(toggleDragged) prefs.edit().putInt("ai_toggle_x",aiToggleLp.x).putInt("ai_toggle_y",aiToggleLp.y).apply()
+                    else v.performClick()
+                    true
+                }
+                else -> true
+            }
+        }
+        wm.addView(aiToggle,aiToggleLp)
         panel=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(6,6,6,6); setBackgroundColor(0xEE20252B.toInt()) }
         val panelParams=WindowManager.LayoutParams((236*density).roundToInt(),WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply {
             gravity=Gravity.TOP or Gravity.RIGHT
@@ -279,6 +323,10 @@ class OverlayService : Service() {
         val scroll = ScrollView(this).apply { isFillViewport=false; isVerticalScrollBarEnabled=true; overScrollMode=ScrollView.OVER_SCROLL_IF_CONTENT_SCROLLS }
         scroll.addView(content)
         panel.addView(scroll, LinearLayout.LayoutParams(-1,(resources.displayMetrics.heightPixels*0.52f).roundToInt()))
+        scroll.visibility = android.view.View.GONE
+        collapse.text = "+"
+        panelParams.width = (58*density).roundToInt()
+        title.text = "TORCH"
         collapse.setOnClickListener {
             val hidden = scroll.visibility == android.view.View.VISIBLE
             scroll.visibility = if (hidden) android.view.View.GONE else android.view.View.VISIBLE
@@ -427,7 +475,7 @@ class OverlayService : Service() {
         aiPlaying = true; aiWaitingForResult = false
         movementAnchor?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         interactButton?.let { try { wm.removeView(it) } catch (_: Exception) {} }
-        status?.text = "AI GO · learning continuously · STOP AI to end"
+        updateAiToggle()\n        status?.text = "AI GO · learning continuously · STOP AI to end"
         handler.post(aiPlayLoop)
     }
 
@@ -440,7 +488,7 @@ class OverlayService : Service() {
         status?.text = message
     }
 
-    private fun recordAction(index: Int, x: Float, y: Float) {
+    private fun updateAiToggle() {\n        aiToggleButton?.apply {\n            text = if (aiPlaying) "AI ON" else "AI OFF"\n            setBackgroundColor(if (aiPlaying) 0xFF267A42.toInt() else 0xFF8E3434.toInt())\n        }\n    }\n\n    private fun recordAction(index: Int, x: Float, y: Float) {
         if (!recording) return
         try {
             val events = JSONArray(memoryPrefs.getString("events", "[]") ?: "[]")
