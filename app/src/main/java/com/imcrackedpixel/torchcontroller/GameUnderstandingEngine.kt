@@ -156,8 +156,8 @@ object GameUnderstandingEngine {
     fun report(context: Context): String {
         val p = prefs(context)
         return (p.getString("summary", "Waiting for game screen observations") ?: "Waiting for game screen observations") +
-            "\\nNext: " + (p.getString("next_step", "Observe the game") ?: "Observe the game") +
-            "\\nThis is an evidence-based estimate; unreadable or hidden mechanics still need testing."
+            "\nNext: " + (p.getString("next_step", "Observe the game") ?: "Observe the game") +
+            "\nThis is an evidence-based estimate; unreadable or hidden mechanics still need testing."
     }
 
     private fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
