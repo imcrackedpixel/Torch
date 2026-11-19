@@ -99,6 +99,20 @@ class MainActivity : Activity() {
             text = "Open AI chat"
             setOnClickListener { startActivity(Intent(this@MainActivity, ChatActivity::class.java)) }
         }, LinearLayout.LayoutParams(-1, -2))
+        content.addView(Button(this).apply {
+            text = "View what AI has learned"
+            setOnClickListener {
+                val report = GameUnderstandingEngine.report(this@MainActivity) + "\\n\\n" +
+                    MinimapNavigation.report(this@MainActivity) + "\\n\\n" +
+                    RoutineController.report(this@MainActivity) + "\\n\\n" +
+                    TorchGameAgent.report(this@MainActivity)
+                android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Torch AI · Game knowledge")
+                    .setMessage(report)
+                    .setPositiveButton("Close", null)
+                    .show()
+            }
+        }, LinearLayout.LayoutParams(-1, -2))
         content.addView(TextView(this).apply {
             text = "LEARNING MEMORY"
             textSize = 13f
