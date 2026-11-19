@@ -23,6 +23,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: torch-route-farmer-0.2.0
+          name: torch-map-farmer-0.3.0
           path: torchlight-bot/build/outputs/apk/debug/torchlight-bot-debug.apk
           if-no-files-found: error
