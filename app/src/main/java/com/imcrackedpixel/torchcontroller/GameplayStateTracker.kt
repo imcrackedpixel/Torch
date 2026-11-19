@@ -12,6 +12,24 @@ object GameplayStateTracker {
         val prefs = context.getSharedPreferences("live_teaching", Context.MODE_PRIVATE)
         val text = lines.joinToString(" ").lowercase()
         val cueText = cues.joinToString(" · ")
+        // OCR-only quest hints; these are candidate objectives, not verified quest state.
+        val questHints = lines.filter { line ->
+            val value = line.lowercase()
+            listOf("quest", "talk to", "speak to", "defeat", "kill", "find", "collect", "travel to", "enter", "rescue", "investigate", "activate", "complete", "deliver", "follow").any { value.contains(it) }
+        }.distinct().take(5)
+        if (questHints.isNotEmpty()) {
+            val candidate = questHints.joinToString(" | ").take(500)
+            val previousQuest = prefs.getString("quest_objective_text", "") ?: ""
+            if (candidate != previousQuest) {
+                val history = prefs.getString("quest_observation_history", "") ?: ""
+                val entry = System.currentTimeMillis().toString() + " | " + candidate
+                prefs.edit().putString("quest_objective_text", candidate)
+                    .putString("quest_observation_history", (history.split("\n").filter { it.isNotBlank() } + entry).takeLast(80).joinToString("\n"))
+                    .putLong("quest_objective_seen_at", System.currentTimeMillis()).apply()
+            } else {
+                prefs.edit().putLong("quest_objective_seen_at", System.currentTimeMillis()).apply()
+            }
+        }
         val state: String
         val confidence: String
         val next: String
@@ -48,7 +66,8 @@ object GameplayStateTracker {
         val previous = prefs.getString("last_state", "") ?: ""
         val changed = previous.isNotBlank() && previous != state
         val evidence = cueText.ifBlank { "No strong HUD cue" }
-        val summary = "$state · confidence $confidence · objects detected: $objectCount"
+        val quest = (prefs.getString("quest_objective_text", "") ?: "").takeIf { it.isNotBlank() }?.let { " · Quest text: $it" } ?: ""
+        val summary = "$state · confidence $confidence · objects detected: $objectCount$quest"
         val detail = "$summary\nEvidence: $evidence\nNext: $next" + if (changed) "\nState change: $previous → $state" else ""
         val raw = lines.joinToString(" | ").take(180)
         prefs.edit()
