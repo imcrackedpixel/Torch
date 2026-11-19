@@ -82,6 +82,38 @@ object MinimapNavigation {
         return (dx * dx + dy * dy) > 0.00009f
     }
 
+    /**
+     * Select the least-visited adjacent minimap cell when no explicit target is visible.
+     * Directions match the joystick order used by OverlayService: up, NE, right, SE,
+     * down, SW, left, NW. This is still based on candidate marker colours.
+     */
+    fun explorationDirection(context: Context): Int? {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        if (now - p.getLong("player_seen_at", 0L) > 9000L) return null
+        val px = p.getFloat("player_x", -1f)
+        val py = p.getFloat("player_y", -1f)
+        if (px !in 0f..1f || py !in 0f..1f) return null
+        val cx = (px * GRID).toInt().coerceIn(0, GRID - 1)
+        val cy = (py * GRID).toInt().coerceIn(0, GRID - 1)
+        val cells = safeObject(p.getString("visited_cells", "{}"))
+        val offsets = arrayOf(
+            0 to -1, 1 to -1, 1 to 0, 1 to 1,
+            0 to 1, -1 to 1, -1 to 0, -1 to -1
+        )
+        val directionScores = offsets.mapIndexedNotNull { direction, offset ->
+            val nx = cx + offset.first
+            val ny = cy + offset.second
+            if (nx !in 0 until GRID || ny !in 0 until GRID) return@mapIndexedNotNull null
+            val cell = cells.optJSONObject("$nx,$ny")
+            val visits = cell?.optInt("visits", 0) ?: 0
+            val lastSeen = cell?.optLong("last_seen", 0L) ?: 0L
+            val ageBonus = if (lastSeen > 0L && now - lastSeen > 120000L) -0.35 else 0.0
+            direction to (visits.toDouble() + ageBonus)
+        }
+        return directionScores.minByOrNull { it.second }?.first
+    }
+
     fun suggestedDirection(context: Context): Int? {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
