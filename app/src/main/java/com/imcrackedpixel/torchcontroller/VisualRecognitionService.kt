@@ -218,6 +218,8 @@ class VisualRecognitionService : Service() {
                 val label = labels.joinToString(",").ifBlank { "unlabelled object" }
                 label + "@" + box.centerX() + "," + box.centerY() + "," + box.width() + "," + box.height()
             }
+            val mapObservation = MinimapNavigation.observe(this, bitmap)
+            if (mapObservation.isNotBlank()) torchSignals += mapObservation
             observeGeneralGameplay(text, torchSignals, objectDetails, bitmap.width, bitmap.height)
             val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text }, enemyBars)
             updateHighlights(ocrLines, bitmap.width, bitmap.height, teachCandidate, enemyBars)
