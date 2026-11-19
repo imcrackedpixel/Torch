@@ -7,6 +7,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.view.View
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.os.Build
@@ -36,6 +39,8 @@ class BotAccessibilityService : AccessibilityService() {
     private var eliteMode = false
     private var routeActions = JSONArray()
     private val eliteSamples = JSONArray()
+    private val routePoints = mutableListOf<Pair<Float, Float>>()
+    private var routePreview: RoutePreviewView? = null
     private var overlay: LinearLayout? = null
     private var statusView: TextView? = null
     private lateinit var wm: WindowManager
@@ -95,6 +100,7 @@ class BotAccessibilityService : AccessibilityService() {
             setTextColor(0xFFFFFFFF.toInt()); textSize = 12f
         }
         panel.addView(statusView)
+        routePreview = RoutePreviewView(this).also { panel.addView(it, LinearLayout.LayoutParams(220, 110)) }
         val top = LinearLayout(this)
         top.addView(makeButton("RECORD MAP") { beginRecording() })
         top.addView(makeButton("SAVE MAP") { saveRecording() })
@@ -150,6 +156,7 @@ class BotAccessibilityService : AccessibilityService() {
     private fun beginRecording() {
         stopBot()
         routeActions = JSONArray()
+        routePoints.clear(); routePoints.add(0f to 0f); routePreview?.invalidate()
         while (eliteSamples.length() > 0) eliteSamples.remove(0)
         recording = true
         lastActionAt = System.currentTimeMillis()
@@ -169,6 +176,7 @@ class BotAccessibilityService : AccessibilityService() {
             put("actions", routeActions)
             put("eliteSamples", eliteSamples)
             put("visualRecording", true)
+            put("pathPoints", JSONArray().apply { routePoints.forEach { p -> put(JSONObject().put("x", p.first).put("y", p.second)) } })
         }
         routes.put(route)
         saveRoutes(routes)
@@ -184,6 +192,15 @@ class BotAccessibilityService : AccessibilityService() {
                 put("durationMs", MOVE_MS); put("gapMs", max(0L, now - lastActionAt - MOVE_MS))
             })
             lastActionAt = now
+            val prev = routePoints.lastOrNull() ?: (0f to 0f)
+            val scale = MOVE_MS.toFloat() / 650f
+            val next = when (direction) {
+                "UP" -> prev.first to (prev.second - scale)
+                "DOWN" -> prev.first to (prev.second + scale)
+                "LEFT" -> (prev.first - scale) to prev.second
+                else -> (prev.first + scale) to prev.second
+            }
+            routePoints.add(next); routePreview?.invalidate()
             captureRouteFrame(routeActions.length() - 1)
         }
         performMove(direction, MOVE_MS) {
@@ -228,6 +245,13 @@ class BotAccessibilityService : AccessibilityService() {
         stopBot()
         routeName = route.optString("name", "Saved map")
         playRoute = route.optJSONArray("actions") ?: JSONArray()
+        routePoints.clear()
+        val savedPoints = route.optJSONArray("pathPoints")
+        if (savedPoints != null) for (i in 0 until savedPoints.length()) {
+            val p = savedPoints.optJSONObject(i) ?: continue
+            routePoints.add(p.optDouble("x").toFloat() to p.optDouble("y").toFloat())
+        }
+        routePreview?.invalidate()
         if (playRoute.length() == 0) { setStatus("map has no recorded moves"); return }
         playIndex = 0
         playing = true
@@ -278,6 +302,39 @@ class BotAccessibilityService : AccessibilityService() {
             }
         }
         saveRoutes(routes)
+    }
+
+
+    private inner class RoutePreviewView(context: Context) : View(context) {
+        private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF42D7A0.toInt(); strokeWidth = 4f; style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        }
+        private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFC857.toInt(); style = Paint.Style.FILL }
+        private val bg = Paint().apply { color = 0xFF263442.toInt() }
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), 8f, 8f, bg)
+            if (routePoints.isEmpty()) return
+            val minX = routePoints.minOf { it.first }; val maxX = routePoints.maxOf { it.first }
+            val minY = routePoints.minOf { it.second }; val maxY = routePoints.maxOf { it.second }
+            val sx = (width - 24f) / max(1f, maxX - minX)
+            val sy = (height - 24f) / max(1f, maxY - minY)
+            val scale = min(sx, sy)
+            val ox = (width - (maxX - minX) * scale) / 2f
+            val oy = (height - (maxY - minY) * scale) / 2f
+            val path = Path()
+            routePoints.forEachIndexed { i, p ->
+                val x = ox + (p.first - minX) * scale
+                val y = oy + (p.second - minY) * scale
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            canvas.drawPath(path, line)
+            val first = routePoints.first()
+            val last = routePoints.last()
+            canvas.drawCircle(ox + (first.first - minX) * scale, oy + (first.second - minY) * scale, 5f, dot)
+            canvas.drawCircle(ox + (last.first - minX) * scale, oy + (last.second - minY) * scale, 5f, dot)
+        }
     }
 
     private fun captureRouteFrame(actionIndex: Int) {
