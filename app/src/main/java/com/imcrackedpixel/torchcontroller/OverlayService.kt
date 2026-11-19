@@ -73,7 +73,8 @@ class OverlayService : Service() {
             }.take(3600)
             val decision = TorchGameAgent.plan(this@OverlayService, phase, state, observedText, live.getInt("enemy_bar_count", -1), available)
             if (decision.action == "WAIT") {
-                status?.text = "AI holding · " + decision.reason
+                val buildScreen = listOf("talent", "skill", "equipment", "inventory", "gear", "hero trait", "pactspirit").any { observedText.contains(it, true) }
+                status?.text = if (buildScreen) "Torchlight character/build screen detected · open TORCHLIGHT BUILD ADVISOR for the next upgrade" else "AI holding · " + decision.reason
                 handler.postDelayed(this, 1800L)
                 return
             }
