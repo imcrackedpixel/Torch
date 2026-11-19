@@ -88,6 +88,11 @@ object TorchGameAgent {
     fun plan(context: Context, phase: String, state: String, text: String, enemyBars: Int, availableSkills: List<Int>): Decision {
         val lower = (state + " " + text).lowercase(Locale.ROOT)
         val direction = chooseDirection(context)
+        val startPrompt = listOf("tap to start", "press start", "press to start", "start game",
+            "continue game", "play now", "resume game", "tap to play").any { lower.contains(it) }
+        if (startPrompt) {
+            return Decision("INTERACT", "Start/continue prompt detected; test the mapped interaction button", direction, -1)
+        }
         if (phase.contains("MENU", true) || phase.contains("RECOVERY", true) ||
             lower.contains("game over") || lower.contains("you died") || lower.contains("inventory") ||
             lower.contains("settings") || lower.contains("skill tree") || lower.contains("connection lost")) {
@@ -106,7 +111,7 @@ object TorchGameAgent {
 
         val interaction = state.contains("LOOT VISIBLE", true) ||
             listOf("pickup", "pick up", "claim reward", "accept quest", "talk to", "speak to",
-                "interact", "open chest", "enter portal", "continue", "press to collect").any { lower.contains(it) }
+                "interact", "open chest", "open door", "enter portal", "continue", "press to collect", "collect reward", "shop", "activate", "use object").any { lower.contains(it) }
         if (interaction) return Decision("INTERACT", "Visible interaction cue: test the mapped I control and verify the result", direction, -1)
 
         val combat = enemyBars > 0 || phase.contains("COMBAT", true) ||
