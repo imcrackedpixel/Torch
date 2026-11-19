@@ -64,7 +64,13 @@ class OverlayService : Service() {
             val beforeBars = live.getInt("enemy_bar_count", -1)
             val beforeObservation = live.getString("last_observation", "") ?: ""
             val beforeState = state
-            val observedText = live.getString("last_observation", "") ?: ""
+            val rawOcr = live.getString("raw_ocr_lines", "") ?: ""
+            val visualCues = live.getString("raw_visual_cues", "") ?: ""
+            val observedText = buildString {
+                append(rawOcr)
+                if (visualCues.isNotBlank()) append(" | ").append(visualCues)
+                append(" | ").append(live.getString("last_observation", "") ?: "")
+            }.take(3600)
             val decision = TorchGameAgent.plan(this@OverlayService, phase, state, observedText, live.getInt("enemy_bar_count", -1), available)
             if (decision.action == "WAIT") {
                 status?.text = "AI holding · " + decision.reason
