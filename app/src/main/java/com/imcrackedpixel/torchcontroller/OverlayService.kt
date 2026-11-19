@@ -177,7 +177,7 @@ class OverlayService : Service() {
             }
             wm.addView(button,lp)
         }
-        val moveButton = Button(this).apply { text="M\\nMOVE"; textSize=11f; isAllCaps=false; setTextColor(Color.WHITE); setBackgroundColor(0xCC6A4C93.toInt()) }
+        val moveButton = Button(this).apply { text="M\nMOVE"; textSize=11f; isAllCaps=false; setTextColor(Color.WHITE); setBackgroundColor(0xCC6A4C93.toInt()) }
         val moveLp = WindowManager.LayoutParams((64*density).roundToInt(),(64*density).roundToInt(),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply {
             gravity=Gravity.TOP or Gravity.LEFT
             x=prefs.getInt("move_x",(24*density).roundToInt())
@@ -199,7 +199,7 @@ class OverlayService : Service() {
         }
         wm.addView(moveButton,moveLp)
 
-        val interact = Button(this).apply { text="I\\nUSE"; textSize=11f; isAllCaps=false; setTextColor(Color.WHITE); setBackgroundColor(0xCCB36B24.toInt()) }
+        val interact = Button(this).apply { text="I\nUSE"; textSize=11f; isAllCaps=false; setTextColor(Color.WHITE); setBackgroundColor(0xCCB36B24.toInt()) }
         val interactLp = WindowManager.LayoutParams((64*density).roundToInt(),(64*density).roundToInt(),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply {
             gravity=Gravity.TOP or Gravity.LEFT
             x=prefs.getInt("interact_x",(resources.displayMetrics.widthPixels-90*density).roundToInt())
