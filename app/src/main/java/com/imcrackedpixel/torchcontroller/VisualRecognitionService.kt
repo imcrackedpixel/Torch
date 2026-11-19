@@ -221,7 +221,10 @@ class VisualRecognitionService : Service() {
             observeGeneralGameplay(text, torchSignals, objectDetails, bitmap.width, bitmap.height)
             val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text }, enemyBars)
             updateHighlights(ocrLines, bitmap.width, bitmap.height, teachCandidate, enemyBars)
-            if (teachCandidate != null) askTeachQuestion(teachCandidate.first, teachCandidate.second)
+            // Teaching prompts are opt-in; observation and GO AI must never wait for answers.
+            if (teachCandidate != null && learnedPrefs.getBoolean("interactive_teaching_enabled", false)) {
+                askTeachQuestion(teachCandidate.first, teachCandidate.second)
+            }
             // Keep detailed OCR/object data internal; never dump raw screen text into the app UI.
             sendStatus("Watching screen · learning locally")
             bitmap.recycle()
@@ -557,7 +560,7 @@ class VisualRecognitionService : Service() {
         if (changed && now - lastGeneralQuestionAt > 15000L) {
             val before = lastScreenText
             saveGameplayNote("OBSERVATION: " + summary)
-            if (activeQuestionKey == null && before.isNotBlank()) {
+            if (learnedPrefs.getBoolean("interactive_teaching_enabled", false) && activeQuestionKey == null && before.isNotBlank()) {
                 generalQuestionNumber += 1
                 val questionKey = "general_gameplay_" + generalQuestionNumber
                 activeQuestionKey = questionKey
