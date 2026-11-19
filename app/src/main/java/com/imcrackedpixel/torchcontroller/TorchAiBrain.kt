@@ -44,7 +44,7 @@ object TorchAiBrain {
         val phase = when {
             listOf("game over", "you died", "defeat", "respawn").any { lower.contains(it) } -> "RECOVERY"
             listOf("victory", "level complete", "stage clear", "mission complete", "quest complete").any { lower.contains(it) } -> "POSSIBLE COMPLETION"
-            listOf("inventory", "settings", "equipment", "skill tree", "pause", "map", "menu").any { lower.contains(it) } -> "MENU"
+            listOf("inventory", "settings", "equipment", "skill tree", "paused", "game paused", "main menu", "options menu").any { lower.contains(it) } -> "MENU"
             cues.any { it.contains("combat", true) || it.contains("enemy", true) } || listOf("boss", "enemy", "monster").any { lower.contains(it) } -> "POSSIBLE COMBAT"
             objective.isNotBlank() -> "OBJECTIVE VISIBLE"
             else -> "EXPLORATION / UNKNOWN"
