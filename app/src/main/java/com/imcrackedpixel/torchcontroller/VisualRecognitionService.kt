@@ -221,6 +221,7 @@ class VisualRecognitionService : Service() {
             val mapObservation = MinimapNavigation.observe(this, bitmap)
             if (mapObservation.isNotBlank()) torchSignals += mapObservation
             observeGeneralGameplay(text, torchSignals, objectDetails, bitmap.width, bitmap.height)
+            GameWorldModel.observe(this, text, objectDetails, bitmap.width, bitmap.height)
             val teachCandidate = findTeachCandidate(bitmap, ocrLines.map { it.text }, enemyBars)
             updateHighlights(ocrLines, bitmap.width, bitmap.height, teachCandidate, enemyBars)
             // Teaching prompts are opt-in; observation and GO AI must never wait for answers.
