@@ -22,7 +22,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         })
         root.addView(TextView(this).apply {
-            text = "Record reusable joystick routes, save them in your route library, then replay a randomly selected route. Keep the game in the foreground while the bot runs."
+            text = "Record map routes with the floating directional controls. Each step stores its direction, duration and a visual screen snapshot. Tag elite enemies to save visual examples."
             textSize = 14f
             setPadding(0, 12, 0, 16)
         })
@@ -77,13 +77,13 @@ class MainActivity : Activity() {
             }
         })
         status = TextView(this).apply {
-            text = "Ready. First enable the accessibility service, then open the floating controls over the game. Record a route using the direction buttons."
+            text = "Ready. Enable accessibility, open the floating controls over Torchlight, press RECORD MAP, then guide the character using the bot's directional buttons. Press TAG ELITE when an elite or boss is visible, then SAVE MAP at the end."
             textSize = 14f
             setPadding(0, 16, 0, 8)
         }
         root.addView(status)
         root.addView(TextView(this).apply {
-            text = "Important: this build records and replays joystick command routes. It does not yet recognise map geometry, enemies or bosses, nor verify a boss kill or map completion. Route replay must be supervised and calibrated."
+            text = "This build records timed movement commands and screen snapshots, and stores screenshots you manually tag as elite examples. Replay is still a fixed route: automatic elite recognition, boss targeting, obstacle correction, town teleport and portal/map selection are not implemented yet. Keep the game visible and supervise playback."
             textSize = 13f
             setPadding(0, 12, 0, 12)
         })
