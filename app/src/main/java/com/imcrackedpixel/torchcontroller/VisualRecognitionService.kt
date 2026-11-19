@@ -547,6 +547,7 @@ class VisualRecognitionService : Service() {
         if (current.isBlank() && cues.isEmpty() && objectDetails.isEmpty()) return
         val summary = GameplayStateTracker.observe(this, lines, cues, objectDetails.size)
         val brain = TorchAiBrain.observe(this, lines, cues, objectDetails, screenWidth, screenHeight)
+        TorchGameAgent.observeScene(this, lines, objectDetails, screenWidth, screenHeight)
         learnedPrefs.edit()
             .putString("ai_brain_summary", TorchAiBrain.summary(this))
             .putString("ai_scene_key", brain.sceneKey)

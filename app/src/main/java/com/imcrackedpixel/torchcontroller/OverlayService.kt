@@ -65,8 +65,8 @@ class OverlayService : Service() {
             val beforeObservation = live.getString("last_observation", "") ?: ""
             val beforeState = state
             val observedText = live.getString("last_observation", "") ?: ""
-            val interactionCue = state.contains("LOOT VISIBLE", true) ||
-                listOf("talk to", "speak to", "interact", "pickup", "pick up", "claim reward", "accept quest", "open chest", "enter portal", "continue").any { observedText.contains(it, true) }
+            val decision = TorchGameAgent.plan(this, phase, state, observedText, live.getInt("enemy_bar_count", -1), available)
+            val interactionCue = decision.action == "INTERACT"
             val interactionPoint = interactParams
             if (interactionCue && interactionPoint != null) {
                 val x = interactionPoint.x + 32f * resources.displayMetrics.density
@@ -93,9 +93,9 @@ class OverlayService : Service() {
             movementDirectionIndex += 1
             // Basic ARPG rhythm: use a learned skill regularly during likely combat,
             // but keep moving between casts so the player does not stand still forever.
-            val trySkill = combat && available.isNotEmpty() && (movementDirectionIndex % 3 != 0)
+            val trySkill = decision.action == "SKILL" && available.isNotEmpty()
             if (trySkill) {
-                val index = chooseLearningButton(available)
+                val index = decision.skillIndex.takeIf { it in available } ?: chooseLearningButton(available)
                 val b = taps[index]; val p = params[index]
                 if (b != null && p != null) {
                     val x = p.x + b.width / 2f
@@ -120,15 +120,18 @@ class OverlayService : Service() {
                 Pair(0f, -42f), Pair(30f, -30f), Pair(42f, 0f), Pair(30f, 30f),
                 Pair(0f, 42f), Pair(-30f, 30f), Pair(-42f, 0f), Pair(-30f, -30f)
             )
-            val dirIndex = chooseMovementDirection()
+            val dirIndex = decision.direction
             val direction = directions[dirIndex]
-            svc.moveJoystick(anchor.x + 32f * resources.displayMetrics.density, anchor.y + 32f * resources.displayMetrics.density, direction.first * resources.displayMetrics.density, direction.second * resources.displayMetrics.density, 700L)
+            val moveDuration = TorchGameAgent.movementDuration(this)
+            svc.moveJoystick(anchor.x + 32f * resources.displayMetrics.density, anchor.y + 32f * resources.displayMetrics.density, direction.first * resources.displayMetrics.density, direction.second * resources.displayMetrics.density, moveDuration)
             aiWaitingForResult = true
             status?.text = "AI exploring · movement direction " + (dirIndex + 1) + "/8"
             handler.postDelayed({
                 if (!aiPlaying) { aiWaitingForResult = false; return@postDelayed }
                 val after = getSharedPreferences("live_teaching", MODE_PRIVATE)
-                recordMovementOutcome(dirIndex, beforeState, after.getString("last_state", "") ?: "", beforeObservation, after.getString("last_observation", "") ?: "")
+                val afterObservation = after.getString("last_observation", "") ?: ""
+                recordMovementOutcome(dirIndex, beforeState, after.getString("last_state", "") ?: "", beforeObservation, afterObservation)
+                TorchGameAgent.recordMovement(this, dirIndex, beforeObservation != afterObservation)
                 aiWaitingForResult = false
                 handler.postDelayed(aiPlayLoop, 450L)
             }, 1900L)
@@ -288,6 +291,10 @@ class OverlayService : Service() {
                     "Learning brain is waiting for live screen recognition"
                 } else brain
             }
+        })
+        content.addView(Button(this).apply {
+            text = "SHOW LEARNING REPORT"
+            setOnClickListener { status?.text = TorchGameAgent.report(this@OverlayService) }
         })
         content.addView(Button(this).apply {
             text = "START ACTION RECORDING"
