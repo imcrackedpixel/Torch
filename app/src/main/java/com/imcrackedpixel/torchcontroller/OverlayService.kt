@@ -31,25 +31,38 @@ class OverlayService : Service() {
     private var experimenting = false
     private var aiPlaying = false
     private var aiPlayIndex = 0
-    private var aiPlayStartedAt = 0L
+    private var aiWaitingForResult = false
     private val aiPlayLoop = object : Runnable {
         override fun run() {
-            if (!aiPlaying) return
-            if (System.currentTimeMillis() - aiPlayStartedAt >= 60000L) { stopAiPlay("AI play finished its 60-second test"); return }
+            if (!aiPlaying || aiWaitingForResult) return
             val state = getSharedPreferences("live_teaching", MODE_PRIVATE).getString("last_state", "") ?: ""
             if (!state.contains("POSSIBLE COMBAT", true)) {
-                status?.text = "AI paused: waiting for possible combat"
-                handler.postDelayed(this, 1500L); return
+                status?.text = "AI running · waiting for possible combat"
+                handler.postDelayed(this, 1800L)
+                return
             }
             val available = (0..3).filter { enabled[it] }
-            if (available.isEmpty()) { stopAiPlay("AI stopped: enable at least one T button"); return }
-            val index = available[aiPlayIndex % available.size]; aiPlayIndex++
+            if (available.isEmpty()) { stopAiPlay("AI stopped: turn ON at least one T button"); return }
+            val index = chooseLearningButton(available)
             val b = taps[index]; val p = params[index]; val svc = TouchService.instance
             if (b == null || p == null || svc == null) { stopAiPlay("AI stopped: controller or Accessibility unavailable"); return }
-            val x = p.x + b.width / 2f; val y = p.y + b.height / 2f
-            svc.tapAt(x, y); recordAction(index, x, y)
-            status?.text = "AI PLAY · tried T" + (index + 1) + " · 60-second test"
-            handler.postDelayed(this, 3000L)
+            val x = p.x + b.width / 2f
+            val y = p.y + b.height / 2f
+            val beforeBars = getSharedPreferences("live_teaching", MODE_PRIVATE).getInt("enemy_bar_count", -1)
+            val beforeObservation = getSharedPreferences("live_teaching", MODE_PRIVATE).getString("last_observation", "") ?: ""
+            svc.tapAt(x, y)
+            recordAction(index, x, y)
+            aiWaitingForResult = true
+            status?.text = "AI learning · tried T" + (index + 1) + " · checking screen evidence"
+            handler.postDelayed({
+                if (!aiPlaying) { aiWaitingForResult = false; return@postDelayed }
+                val live = getSharedPreferences("live_teaching", MODE_PRIVATE)
+                val afterBars = live.getInt("enemy_bar_count", -1)
+                val afterObservation = live.getString("last_observation", "") ?: ""
+                recordAiOutcome(index, beforeBars, afterBars, beforeObservation, afterObservation)
+                aiWaitingForResult = false
+                handler.postDelayed(this, 900L)
+            }, 2400L)
         }
     }
     private var experimentIndex = 0
@@ -173,20 +186,12 @@ class OverlayService : Service() {
             }
         })
         panel.addView(Button(this).apply {
-            text = "AI PLAY (SUPERVISED 60 SEC)"
+            text = "GO AI (LEARN & PLAY)"
             setOnClickListener { startAiPlay() }
         })
         panel.addView(Button(this).apply {
-            text = "STOP AI PLAY"
+            text = "STOP AI"
             setOnClickListener { stopAiPlay("AI play stopped by you") }
-        })
-        panel.addView(Button(this).apply {
-            text = "START EXPERIMENT (60 SEC)"
-            setOnClickListener { startExperiment() }
-        })
-        panel.addView(Button(this).apply {
-            text = "STOP EXPERIMENT"
-            setOnClickListener { stopExperiment("Experiment stopped by you") }
         })
         panel.addView(Button(this).apply {
             text = "REPLAY LAST RECORDING"
@@ -217,18 +222,73 @@ class OverlayService : Service() {
         val panelParams=WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply { gravity=Gravity.TOP or Gravity.RIGHT; x=(8*density).roundToInt(); y=(48*density).roundToInt() }
         wm.addView(panel,panelParams)
     }
+    // Learns a cautious per-button preference from repeated, local screen observations.
+    // A falling count of candidate red bars is weak evidence only, not proof of damage.
+    private fun chooseLearningButton(available: List<Int>): Int {
+        val scores = try { JSONObject(memoryPrefs.getString("skill_learning", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
+        val unexplored = available.filter { index ->
+            val item = scores.optJSONObject((index + 1).toString())
+            (item?.optInt("trials", 0) ?: 0) < 2
+        }
+        if (unexplored.isNotEmpty()) return unexplored.minByOrNull { index ->
+            scores.optJSONObject((index + 1).toString())?.optInt("trials", 0) ?: 0
+        } ?: unexplored.first()
+        return available.maxByOrNull { index ->
+            val item = scores.optJSONObject((index + 1).toString()) ?: JSONObject()
+            val trials = item.optInt("trials", 0).coerceAtLeast(1)
+            (item.optInt("positive", 0).toDouble() - item.optInt("negative", 0).toDouble() * 0.5) / trials
+        } ?: available.first()
+    }
+
+    private fun recordAiOutcome(index: Int, beforeBars: Int, afterBars: Int, beforeText: String, afterText: String) {
+        try {
+            val key = (index + 1).toString()
+            val scores = JSONObject(memoryPrefs.getString("skill_learning", "{}") ?: "{}")
+            val item = scores.optJSONObject(key) ?: JSONObject()
+            val positive = beforeBars > 0 && afterBars >= 0 && afterBars < beforeBars
+            val negative = beforeBars > 0 && afterBars > beforeBars
+            item.put("trials", item.optInt("trials", 0) + 1)
+            item.put("positive", item.optInt("positive", 0) + if (positive) 1 else 0)
+            item.put("negative", item.optInt("negative", 0) + if (negative) 1 else 0)
+            item.put("last_evidence", when {
+                positive -> "candidate bar count decreased after tap; uncertain correlation"
+                negative -> "candidate bar count increased; inconclusive"
+                beforeBars < 0 || afterBars < 0 -> "bar count unavailable"
+                else -> "no clear bar-count decrease"
+            })
+            scores.put(key, item)
+            memoryPrefs.edit().putString("skill_learning", scores.toString()).apply()
+
+            val history = JSONArray(memoryPrefs.getString("ai_learning_history", "[]") ?: "[]")
+            history.put(JSONObject().apply {
+                put("time", System.currentTimeMillis())
+                put("button", index + 1)
+                put("before_bars", beforeBars)
+                put("after_bars", afterBars)
+                put("evidence", item.optString("last_evidence"))
+                put("screen_changed", beforeText != afterText)
+            })
+            while (history.length() > 100) history.remove(0)
+            memoryPrefs.edit().putString("ai_learning_history", history.toString()).apply()
+            status?.text = "AI learned from T" + (index + 1) + " · " + item.optInt("trials") + " trials · evidence: " + item.optString("last_evidence")
+        } catch (_: Exception) {
+            status?.text = "AI is playing · couldn't save this learning result"
+        }
+    }
+
     private fun startAiPlay() {
         if (aiPlaying) { status?.text = "AI play is already running"; return }
         if (TouchService.instance == null) { status?.text = "Enable Accessibility before AI play"; return }
         if ((0..3).none { enabled[it] }) { status?.text = "Turn ON the skill buttons you want AI to try first"; return }
         stopAutomation("Pausing other automation for AI play")
-        aiPlaying = true; aiPlayIndex = 0; aiPlayStartedAt = System.currentTimeMillis()
+        aiPlaying = true; aiPlayIndex = 0; aiWaitingForResult = false
         status?.text = "AI PLAY ready · waiting for possible combat · 60-second limit"
         handler.post(aiPlayLoop)
     }
 
     private fun stopAiPlay(message: String) {
         aiPlaying = false
+        aiWaitingForResult = false
         handler.removeCallbacks(aiPlayLoop)
         status?.text = message
     }
