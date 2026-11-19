@@ -23,6 +23,22 @@ object TorchGameAgent {
         val fingerprint = digest(tokens.joinToString("|"))
         val old = p.getString("game_fingerprint", "") ?: ""
         val now = System.currentTimeMillis()
+        // Keep a bounded objective journal from readable HUD/quest text. These are
+        // candidate objectives only; completion is never inferred from a screen change.
+        val objectiveLine = lines.firstOrNull { line ->
+            val l = line.lowercase(Locale.ROOT)
+            listOf("quest", "objective", "defeat", "kill ", "collect", "find ", "talk to",
+                "speak to", "return to", "reach ", "deliver", "activate", "rescue", "0/", "1/").any { l.contains(it) }
+        }?.trim()?.take(180).orEmpty()
+        val previousObjective = p.getString("candidate_objective", "") ?: ""
+        val objectiveHistory = try { JSONArray(p.getString("objective_journal", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
+        if (objectiveLine.isNotBlank() && objectiveLine != previousObjective) {
+            objectiveHistory.put(JSONObject().apply {
+                put("time", now); put("text", objectiveLine); put("status", "candidate")
+            })
+            while (objectiveHistory.length() > 60) objectiveHistory.remove(0)
+        }
+        val entities = try { JSONObject(p.getString("screen_entity_memory", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
         val sectors = try { JSONObject(p.getString("screen_sector_memory", "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
         objects.take(40).forEach { detail ->
             val coords = detail.substringAfter("@", "").split(",")
@@ -34,8 +50,18 @@ object TorchGameAgent {
             val item = sectors.optJSONObject(key) ?: JSONObject()
             item.put("seen", item.optInt("seen", 0) + 1)
             item.put("last_seen", now)
-            item.put("last_label", detail.substringBefore("@").take(80))
+            val label = detail.substringBefore("@").trim().take(80)
+            item.put("last_label", label)
             sectors.put(key, item)
+            if (label.isNotBlank()) {
+                val entity = entities.optJSONObject(label) ?: JSONObject()
+                entity.put("seen", entity.optInt("seen", 0) + 1)
+                entity.put("last_seen", now)
+                entity.put("last_x", cx)
+                entity.put("last_y", cy)
+                entity.put("sector", key)
+                entities.put(label, entity)
+            }
         }
         val history = try { JSONArray(p.getString("scene_history", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
         if (fingerprint != old || history.length() == 0) {
@@ -49,6 +75,9 @@ object TorchGameAgent {
         p.edit().putString("game_fingerprint", fingerprint)
             .putString("game_profile_hint", profile)
             .putString("screen_sector_memory", sectors.toString())
+            .putString("screen_entity_memory", entities.toString())
+            .putString("objective_journal", objectiveHistory.toString())
+            .putString("candidate_objective", if (objectiveLine.isNotBlank()) objectiveLine else previousObjective)
             .putString("scene_history", history.toString())
             .putInt("scene_observations", p.getInt("scene_observations", 0) + 1)
             .putLong("last_scene_at", now).apply()
@@ -128,6 +157,9 @@ object TorchGameAgent {
         val actions = try { JSONArray(brain.getString("action_history", "[]") ?: "[]").length() } catch (_: Exception) { 0 }
         val observations = brain.getInt("total_observations", 0)
         val labels = try { JSONObject(brain.getString("object_memory", "{}") ?: "{}").length() } catch (_: Exception) { 0 }
+        val visualEntities = try { JSONObject(p.getString("screen_entity_memory", "{}") ?: "{}").length() } catch (_: Exception) { 0 }
+        val objectiveEntries = try { JSONArray(p.getString("objective_journal", "[]") ?: "[]").length() } catch (_: Exception) { 0 }
+        val objective = p.getString("candidate_objective", "") ?: ""
         val streak = p.getInt("no_progress_streak", 0)
         val profile = p.getString("game_profile_hint", "not identified") ?: "not identified"
         return "TORCH AI LEARNING REPORT\nProfile hint: $profile\nScreen observations: $observations\nScene changes remembered: $scenes\nScreen sectors with detected objects: $sectors/9\nObject labels remembered: $labels\nRecorded action experiments: $actions\nRecent no-progress movement streak: $streak\n\nEvidence is heuristic. Screen changes and detected objects are not proof of movement, damage, loot collection or quest completion. The 3x3 memory is screen-region memory, not a true world map."
