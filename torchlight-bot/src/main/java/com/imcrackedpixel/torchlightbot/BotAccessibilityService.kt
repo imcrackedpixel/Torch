@@ -184,6 +184,7 @@ class BotAccessibilityService : AccessibilityService() {
                 put("durationMs", MOVE_MS); put("gapMs", max(0L, now - lastActionAt - MOVE_MS))
             })
             lastActionAt = now
+            captureRouteFrame(routeActions.length() - 1)
         }
         performMove(direction, MOVE_MS) {
             setStatus(if (recording) "recording · " + routeActions.length() + " moves" else "manual move " + direction)
@@ -277,6 +278,28 @@ class BotAccessibilityService : AccessibilityService() {
             }
         }
         saveRoutes(routes)
+    }
+
+    private fun captureRouteFrame(actionIndex: Int) {
+        if (Build.VERSION.SDK_INT < 30) return
+        takeScreenshot(Display.DEFAULT_DISPLAY, executor, object : TakeScreenshotCallback {
+            override fun onSuccess(screenshot: ScreenshotResult) {
+                try {
+                    val bitmap = Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
+                        ?.copy(Bitmap.Config.ARGB_8888, false)
+                    screenshot.hardwareBuffer.close()
+                    if (bitmap == null) return
+                    val dir = File(filesDir, "route-frames").apply { mkdirs() }
+                    val file = File(dir, "frame-" + System.currentTimeMillis() + ".jpg")
+                    FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.JPEG, 72, it) }
+                    bitmap.recycle()
+                    if (recording && actionIndex < routeActions.length()) {
+                        routeActions.optJSONObject(actionIndex)?.put("visualFrame", file.name)
+                    }
+                } catch (_: Exception) { }
+            }
+            override fun onFailure(errorCode: Int) { }
+        })
     }
 
     private fun captureEliteSample() {
