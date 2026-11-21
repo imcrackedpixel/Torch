@@ -22,7 +22,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         })
         root.addView(TextView(this).apply {
-            text = "For your Ragnarok browser server: open the game in Chrome fullscreen, enable Accessibility, then open the floating controls and press START RO FARM. It taps the crossed-swords attack control, checks the minimap for movement, taps the F3 Fly Wing after five seconds without visible minimap change, and uses the red potion when the HP bar appears low."
+            text = "For your Ragnarok browser server: open the game in Chrome fullscreen and enable Accessibility. The floating controls show three draggable markers: ATK (red attack), F3 (use when no combat is detected), and F6 (use when estimated HP is below 50%). Drag each marker onto the centre of its matching on-screen button before pressing ON."
             textSize = 14f
             setPadding(0, 12, 0, 16)
         })
@@ -34,14 +34,7 @@ class MainActivity : Activity() {
             text = "2 · OPEN FLOATING CONTROLS"
             setOnClickListener {
                 sendBroadcast(Intent(BotAccessibilityService.ACTION_SHOW).setPackage(packageName))
-                status.text = "Floating controls requested. Switch to Torchlight and use the on-screen panel."
-            }
-        })
-        root.addView(Button(this).apply {
-            text = "2 · OPEN FLOATING CONTROLS"
-            setOnClickListener {
-                sendBroadcast(Intent(BotAccessibilityService.ACTION_SHOW).setPackage(packageName))
-                status.text = "Floating controls requested. Switch to Chrome and press ON."
+                status.text = "Floating controls requested. Switch to Chrome, position ATK/F3/F6 markers, then press ON."
             }
         })
         root.addView(Button(this).apply {
@@ -83,7 +76,7 @@ class MainActivity : Activity() {
         }
         root.addView(status)
         root.addView(TextView(this).apply {
-            text = "This is an experimental screen-coordinate bot calibrated to the supplied screenshot. Attack, potion and F3 coordinates may need adjustment if the browser layout or zoom changes. Minimap difference is only a rough stuck detector; it does not identify monsters or guarantee safe movement. Keep the game visible and supervise it."
+            text = "Screen detection is approximate: it looks for red pixels in the central play area as a combat cue and estimates the red HP bar from a default upper-left screen region. If the HP bar is elsewhere or a different colour, F6 decisions will need calibration. Keep the game visible and supervise it."
             textSize = 13f
             setPadding(0, 12, 0, 12)
         })
