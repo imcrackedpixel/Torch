@@ -34,6 +34,7 @@ class BotAccessibilityService : AccessibilityService() {
     }
 
     private val handler = Handler(Looper.getMainLooper())
+    private val screenshotExecutor = java.util.concurrent.Executor { command -> handler.post(command) }
     private val prefs by lazy { getSharedPreferences("tap_positions", MODE_PRIVATE) }
     private lateinit var wm: WindowManager
     private var panel: LinearLayout? = null
@@ -269,7 +270,7 @@ class BotAccessibilityService : AccessibilityService() {
 
     private fun readScreen() {
         screenshotBusy = true
-        takeScreenshot(Display.DEFAULT_DISPLAY, handler::post, object : TakeScreenshotCallback {
+        takeScreenshot(Display.DEFAULT_DISPLAY, screenshotExecutor, object : TakeScreenshotCallback {
             override fun onSuccess(screenshot: ScreenshotResult) {
                 var bitmap: Bitmap? = null
                 try {
