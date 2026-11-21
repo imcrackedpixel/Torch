@@ -40,6 +40,7 @@ class BotAccessibilityService : AccessibilityService() {
     private var panel: LinearLayout? = null
     private var statusView: TextView? = null
     private var toggleView: TextView? = null
+    private var skillCount = 0
     private val controls = mutableListOf<Pair<TapCircle, WindowManager.LayoutParams>>()
     private var running = false
     private var screenshotBusy = false
@@ -120,6 +121,15 @@ class BotAccessibilityService : AccessibilityService() {
             setOnClickListener { if (running) stopBot() else startBot() }
         }
         header.addView(toggleView)
+        val addSkill = TextView(this).apply {
+            text = "  + SKILL  "
+            textSize = 12f
+            setTextColor(Color.WHITE)
+            setPadding(8, 8, 8, 8)
+            setBackgroundColor(0xFF345B80.toInt())
+            setOnClickListener { addSkillCircle() }
+        }
+        header.addView(addSkill)
         val close = TextView(this).apply {
             text = "  ×  "
             textSize = 18f
@@ -149,9 +159,29 @@ class BotAccessibilityService : AccessibilityService() {
             addCircle("attack", "ATK", 0xFFE53935.toInt(), 66f, 0.84f, 0.82f)
             addCircle("f3", "F3", 0xFF28A86B.toInt(), 48f, 0.74f, 0.82f)
             addCircle("f6", "F6", 0xFFFFA726.toInt(), 48f, 0.92f, 0.70f)
+            skillCount = prefs.getInt("skill_count", 0).coerceIn(0, 8)
+            for (i in 1..skillCount) {
+                addCircle("skill_$i", "S$i", 0xFF477FC4.toInt(), 46f,
+                    (0.46f + (i % 4) * 0.07f).coerceAtMost(0.82f),
+                    (0.62f + (i / 4) * 0.08f).coerceAtMost(0.88f))
+            }
         } catch (e: Exception) {
             setStatus("Overlay failed: enable accessibility and try again")
         }
+    }
+
+    private fun addSkillCircle() {
+        if (skillCount >= 8) {
+            setStatus("Maximum 8 extra skill buttons")
+            return
+        }
+        skillCount++
+        prefs.edit().putInt("skill_count", skillCount).apply()
+        val i = skillCount
+        addCircle("skill_$i", "S$i", 0xFF477FC4.toInt(), 46f,
+            (0.46f + (i % 4) * 0.07f).coerceAtMost(0.82f),
+            (0.62f + (i / 4) * 0.08f).coerceAtMost(0.88f))
+        setStatus("Added S$i · drag onto a skill button")
     }
 
     private fun addCircle(key: String, label: String, color: Int, dp: Float, defaultX: Float, defaultY: Float) {
