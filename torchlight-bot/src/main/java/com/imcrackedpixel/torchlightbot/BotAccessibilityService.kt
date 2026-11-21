@@ -17,6 +17,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Display
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Button
@@ -49,6 +50,11 @@ class BotAccessibilityService : AccessibilityService() {
     private var overlay: LinearLayout? = null
     private var statusView: TextView? = null
     private var farmToggle: Button? = null
+    private var aimMarker: AimMarkerView? = null
+    private var aimMarkerParams: WindowManager.LayoutParams? = null
+    private val aimPrefs by lazy { getSharedPreferences("ragnarok_aim", MODE_PRIVATE) }
+    private val attackX: Float get() = aimPrefs.getFloat("x", 0.833f).coerceIn(0.02f, 0.98f)
+    private val attackY: Float get() = aimPrefs.getFloat("y", 0.755f).coerceIn(0.02f, 0.98f)
     private lateinit var wm: WindowManager
     private var playIndex = 0
     private var playRoute = JSONArray()
@@ -131,13 +137,75 @@ class BotAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.END; x = 12; y = 100 }
         overlay = panel
-        try { wm.addView(panel, params) } catch (_: Exception) { overlay = null }
+        try {
+            wm.addView(panel, params)
+            showAimMarker()
+        } catch (_: Exception) { overlay = null }
     }
 
     private fun makeButton(label: String, action: (Button) -> Unit): Button =
         Button(this).apply { text = label; textSize = 10f; setPadding(5, 2, 5, 2); setOnClickListener { action(this) } }
 
+    private fun showAimMarker() {
+        if (aimMarker != null) return
+        val size = (58f * resources.displayMetrics.density).toInt()
+        val marker = AimMarkerView(this)
+        val p = WindowManager.LayoutParams(
+            size, size,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.LEFT
+            x = (resources.displayMetrics.widthPixels * attackX - size / 2f).toInt()
+                .coerceIn(0, (resources.displayMetrics.widthPixels - size).coerceAtLeast(0))
+            y = (resources.displayMetrics.heightPixels * attackY - size / 2f).toInt()
+                .coerceIn(0, (resources.displayMetrics.heightPixels - size).coerceAtLeast(0))
+        }
+        marker.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    marker.dragStartX = event.rawX
+                    marker.dragStartY = event.rawY
+                    marker.viewStartX = p.x
+                    marker.viewStartY = p.y
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    p.x = (marker.viewStartX + event.rawX - marker.dragStartX).toInt()
+                        .coerceIn(0, (resources.displayMetrics.widthPixels - size).coerceAtLeast(0))
+                    p.y = (marker.viewStartY + event.rawY - marker.dragStartY).toInt()
+                        .coerceIn(0, (resources.displayMetrics.heightPixels - size).coerceAtLeast(0))
+                    try { wm.updateViewLayout(marker, p) } catch (_: Exception) {}
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val w = resources.displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
+                    val h = resources.displayMetrics.heightPixels.toFloat().coerceAtLeast(1f)
+                    aimPrefs.edit()
+                        .putFloat("x", ((p.x + size / 2f) / w).coerceIn(0.02f, 0.98f))
+                        .putFloat("y", ((p.y + size / 2f) / h).coerceIn(0.02f, 0.98f))
+                        .apply()
+                    marker.invalidate()
+                    setStatus("attack target moved · tap centre of red attack button")
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> true
+                else -> true
+            }
+        }
+        aimMarker = marker
+        aimMarkerParams = p
+        try { wm.addView(marker, p) } catch (_: Exception) {
+            aimMarker = null
+            aimMarkerParams = null
+        }
+    }
+
     private fun removeControls() {
+        aimMarker?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+        aimMarker = null
+        aimMarkerParams = null
         overlay?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         overlay = null
     }
@@ -298,7 +366,7 @@ class BotAccessibilityService : AccessibilityService() {
 
     private fun farmTick() {
         if (!farming) return
-        tapAt(0.833f, 0.755f, 70L)
+        tapAt(attackX, attackY, 70L)
         if (Build.VERSION.SDK_INT >= 30) {
             takeScreenshot(Display.DEFAULT_DISPLAY, executor, object : TakeScreenshotCallback {
                 override fun onSuccess(screenshot: ScreenshotResult) {
@@ -423,6 +491,32 @@ class BotAccessibilityService : AccessibilityService() {
         saveRoutes(routes)
     }
 
+
+    private inner class AimMarkerView(context: Context) : View(context) {
+        private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF00E5FF.toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f * resources.displayMetrics.density
+        }
+        private val centre = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFD54F.toInt()
+            style = Paint.Style.FILL
+        }
+        var dragStartX = 0f
+        var dragStartY = 0f
+        var viewStartX = 0
+        var viewStartY = 0
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val cx = width / 2f
+            val cy = height / 2f
+            val radius = width * 0.34f
+            canvas.drawCircle(cx, cy, radius, ring)
+            canvas.drawLine(cx - radius * 1.35f, cy, cx + radius * 1.35f, cy, ring)
+            canvas.drawLine(cx, cy - radius * 1.35f, cx, cy + radius * 1.35f, ring)
+            canvas.drawCircle(cx, cy, 3.5f * resources.displayMetrics.density, centre)
+        }
+    }
 
     private inner class RoutePreviewView(context: Context) : View(context) {
         private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
