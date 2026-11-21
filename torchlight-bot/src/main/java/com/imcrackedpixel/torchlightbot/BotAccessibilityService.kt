@@ -130,6 +130,16 @@ class BotAccessibilityService : AccessibilityService() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT
         ))
+        statusView = TextView(this).apply {
+            text = if (farming) "Starting Ragnarok hunt…" else "Ready · press ON to start"
+            textSize = 10f
+            setTextColor(0xFFFFFFFF.toInt())
+            setPadding(6, 4, 6, 4)
+        }
+        panel.addView(statusView, LinearLayout.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT
+        ))
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
