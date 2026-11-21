@@ -36,6 +36,11 @@ class BotAccessibilityService : AccessibilityService() {
     private val executor = Executor { command -> handler.post(command) }
     private var recording = false
     private var playing = false
+    private var farming = false
+    private var lastMinimap: Bitmap? = null
+    private var lastMapChangeAt = 0L
+    private var lastPotionAt = 0L
+    private var teleporting = false
     private var eliteMode = false
     private var routeActions = JSONArray()
     private val eliteSamples = JSONArray()
@@ -55,6 +60,7 @@ class BotAccessibilityService : AccessibilityService() {
         const val ACTION_SHOW = "com.imcrackedpixel.torchlightbot.SHOW"
         const val ACTION_RANDOM_PLAY = "com.imcrackedpixel.torchlightbot.RANDOM_PLAY"
         const val ACTION_STOP = "com.imcrackedpixel.torchlightbot.STOP"
+        const val ACTION_FARM = "com.imcrackedpixel.torchlightbot.FARM"
         private const val MOVE_MS = 650L
     }
 
@@ -64,6 +70,7 @@ class BotAccessibilityService : AccessibilityService() {
                 ACTION_SHOW -> showControls()
                 ACTION_RANDOM_PLAY -> playRandomRoute()
                 ACTION_STOP -> stopBot()
+                ACTION_FARM -> startRagnarokFarm()
             }
         }
     }
@@ -72,7 +79,7 @@ class BotAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         val f = IntentFilter().apply {
-            addAction(ACTION_SHOW); addAction(ACTION_RANDOM_PLAY); addAction(ACTION_STOP)
+            addAction(ACTION_SHOW); addAction(ACTION_RANDOM_PLAY); addAction(ACTION_STOP); addAction(ACTION_FARM)
         }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, f, RECEIVER_NOT_EXPORTED)
         else @Suppress("DEPRECATION") registerReceiver(receiver, f)
@@ -101,6 +108,10 @@ class BotAccessibilityService : AccessibilityService() {
         }
         panel.addView(statusView)
         routePreview = RoutePreviewView(this).also { panel.addView(it, LinearLayout.LayoutParams(220, 110)) }
+        val farmRow = LinearLayout(this)
+        farmRow.addView(makeButton("START RO FARM") { startRagnarokFarm() })
+        farmRow.addView(makeButton("STOP BOT") { stopBot() })
+        panel.addView(farmRow)
         val top = LinearLayout(this)
         top.addView(makeButton("RECORD MAP") { beginRecording() })
         top.addView(makeButton("SAVE MAP") { saveRecording() })
@@ -277,9 +288,130 @@ class BotAccessibilityService : AccessibilityService() {
         }, gap)
     }
 
+
+    private fun tapAt(nx: Float, ny: Float, duration: Long = 90L) {
+        val w = resources.displayMetrics.widthPixels.toFloat()
+        val h = resources.displayMetrics.heightPixels.toFloat()
+        val x = (w * nx).coerceIn(2f, w - 2f)
+        val y = (h * ny).coerceIn(2f, h - 2f)
+        val p = Path().apply { moveTo(x, y) }
+        val stroke = GestureDescription.StrokeDescription(p, 0, duration)
+        dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
+    }
+
+    private fun startRagnarokFarm() {
+        stopBot()
+        farming = true
+        lastMapChangeAt = System.currentTimeMillis()
+        lastPotionAt = 0L
+        lastMinimap?.recycle()
+        lastMinimap = null
+        setStatus("Ragnarok hunt running · attack scan active")
+        farmTick()
+    }
+
+    private fun farmTick() {
+        if (!farming) return
+        tapAt(0.833f, 0.818f)
+        if (Build.VERSION.SDK_INT >= 30) {
+            takeScreenshot(Display.DEFAULT_DISPLAY, executor, object : TakeScreenshotCallback {
+                override fun onSuccess(screenshot: ScreenshotResult) {
+                    var bitmap: Bitmap? = null
+                    try {
+                        bitmap = Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
+                            ?.copy(Bitmap.Config.ARGB_8888, false)
+                        screenshot.hardwareBuffer.close()
+                        if (bitmap != null && farming) analyseRagnarokFrame(bitmap)
+                    } catch (_: Exception) { }
+                    finally { bitmap?.recycle() }
+                }
+                override fun onFailure(errorCode: Int) {
+                    if (farming) setStatus("screen read unavailable · attack continues")
+                }
+            })
+        }
+        handler.postDelayed({ farmTick() }, 1800L)
+    }
+
+    private fun analyseRagnarokFrame(frame: Bitmap) {
+        val now = System.currentTimeMillis()
+        val w = frame.width
+        val h = frame.height
+        val left = (w * 0.845f).toInt().coerceIn(0, w - 2)
+        val top = (h * 0.01f).toInt()
+        val right = (w * 0.995f).toInt()
+        val bottom = (h * 0.335f).toInt().coerceIn(top + 1, h)
+        val mw = (right - left).coerceAtLeast(1)
+        val mh = (bottom - top).coerceAtLeast(1)
+        val mini = Bitmap.createBitmap(frame, left, top, mw, mh)
+        val previous = lastMinimap
+        if (previous != null && previous.width == mini.width && previous.height == mini.height) {
+            var diff = 0L
+            var samples = 0
+            val sx = max(1, mw / 36)
+            val sy = max(1, mh / 24)
+            var y = 0
+            while (y < mh) {
+                var x = 0
+                while (x < mw) {
+                    val a = previous.getPixel(x, y)
+                    val b = mini.getPixel(x, y)
+                    val d = kotlin.math.abs(((a shr 16) and 255) - ((b shr 16) and 255)) +
+                        kotlin.math.abs(((a shr 8) and 255) - ((b shr 8) and 255)) +
+                        kotlin.math.abs((a and 255) - (b and 255))
+                    diff += d
+                    samples++
+                    x += sx
+                }
+                y += sy
+            }
+            val avg = if (samples == 0) 0 else diff / samples
+            if (avg > 24) lastMapChangeAt = now
+            if (now - lastMapChangeAt >= 5000L && !teleporting) {
+                teleporting = true
+                setStatus("no minimap movement · using Fly Wing (F3)")
+                tapAt(0.768f, 0.775f)
+                lastMapChangeAt = now
+                handler.postDelayed({
+                    teleporting = false
+                    lastMapChangeAt = System.currentTimeMillis()
+                    lastMinimap?.recycle()
+                    lastMinimap = null
+                    if (farming) setStatus("teleport attempt complete · hunting")
+                }, 3500L)
+            }
+            previous.recycle()
+        } else {
+            lastMapChangeAt = now
+        }
+        lastMinimap = mini
+
+        val hpY = (h * 0.151f).toInt().coerceIn(0, h - 1)
+        val hpL = (w * 0.082f).toInt().coerceIn(0, w - 1)
+        val hpR = (w * 0.245f).toInt().coerceIn(hpL + 1, w)
+        var blue = 0
+        val total = (hpR - hpL).coerceAtLeast(1)
+        for (x in hpL until hpR) {
+            val color = frame.getPixel(x, hpY)
+            val r = (color shr 16) and 255
+            val g = (color shr 8) and 255
+            val b = color and 255
+            if (b > r + 25 && b > g - 10 && b > 100) blue++
+        }
+        val hpRatio = blue.toFloat() / total
+        if (hpRatio in 0.01f..0.40f && now - lastPotionAt > 5000L) {
+            tapAt(0.326f, 0.045f)
+            lastPotionAt = now
+            setStatus("low HP estimate · potion tapped")
+        }
+    }
+
     private fun stopBot() {
         recording = false
         playing = false
+        farming = false
+        teleporting = false
+        lastMinimap?.recycle(); lastMinimap = null
         handler.removeCallbacksAndMessages(null)
         setStatus("stopped")
     }
