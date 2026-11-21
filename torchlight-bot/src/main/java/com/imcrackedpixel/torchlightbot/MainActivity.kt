@@ -5,102 +5,55 @@ import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
-import android.widget.*
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 
 class MainActivity : Activity() {
-    private lateinit var status: TextView
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val prefs = getSharedPreferences("route_library", MODE_PRIVATE)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24, 24, 24, 24)
+            setPadding(24, 28, 24, 24)
         }
         root.addView(TextView(this).apply {
-            text = "RAGNAROK CHROME FARMER"
-            textSize = 26f
+            text = "RAGNAROK TAP BOT"
+            textSize = 25f
             gravity = Gravity.CENTER
         })
         root.addView(TextView(this).apply {
-            text = "For your Ragnarok browser server: open the game in Chrome fullscreen and enable Accessibility. The floating controls show three draggable markers: ATK (red attack), F3 (use when no combat is detected), and F6 (use when estimated HP is below 50%). Drag each marker onto the centre of its matching on-screen button before pressing ON."
-            textSize = 14f
-            setPadding(0, 12, 0, 16)
+            text = "A simple screen overlay for your browser game. Enable the accessibility service, open the game in Chrome fullscreen, then show the three circles and drag each onto the matching game button."
+            textSize = 15f
+            setPadding(0, 18, 0, 16)
         })
         root.addView(Button(this).apply {
             text = "1 · ENABLE ACCESSIBILITY"
             setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         })
         root.addView(Button(this).apply {
-            text = "2 · OPEN FLOATING CONTROLS"
+            text = "2 · SHOW ATTACK / F3 / F6 CIRCLES"
             setOnClickListener {
                 sendBroadcast(Intent(BotAccessibilityService.ACTION_SHOW).setPackage(packageName))
-                status.text = "Floating controls requested. Switch to Chrome, position ATK/F3/F6 markers, then press ON."
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "3 · START BOT"
+            setOnClickListener {
+                sendBroadcast(Intent(BotAccessibilityService.ACTION_FARM).setPackage(packageName))
             }
         })
         root.addView(Button(this).apply {
             text = "STOP BOT"
             setOnClickListener {
                 sendBroadcast(Intent(BotAccessibilityService.ACTION_STOP).setPackage(packageName))
-                status.text = "Stop requested."
             }
         })
-        root.addView(Button(this).apply {
-            text = "EXPORT ROUTE LIBRARY"
-            setOnClickListener {
-                val data = prefs.getString("routes", "[]") ?: "[]"
-                val i = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "application/json"
-                    putExtra(Intent.EXTRA_TITLE, "torch-route-library.json")
-                }
-                exportData = data
-                @Suppress("DEPRECATION")
-                startActivityForResult(i, 7401)
-            }
-        })
-        root.addView(Button(this).apply {
-            text = "IMPORT ROUTE LIBRARY"
-            setOnClickListener {
-                val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "application/json"
-                }
-                @Suppress("DEPRECATION")
-                startActivityForResult(i, 7402)
-            }
-        })
-        status = TextView(this).apply {
-            text = "Ready. Enable Accessibility, open Chrome fullscreen with the Ragnarok game, open floating controls, then press START RO FARM. Keep the game visible and supervise it."
-            textSize = 14f
-            setPadding(0, 16, 0, 8)
-        }
-        root.addView(status)
         root.addView(TextView(this).apply {
-            text = "Screen detection is approximate: it looks for red pixels in the central play area as a combat cue and estimates the red HP bar from a default upper-left screen region. If the HP bar is elsewhere or a different colour, F6 decisions will need calibration. Keep the game visible and supervise it."
-            textSize = 13f
-            setPadding(0, 12, 0, 12)
+            text = "How it behaves\n• ATK: taps the attack button about every 1.6 seconds.\n• F3: taps after 5 seconds without a red combat cue (10-second cooldown).\n• F6: checks for a low blue HP bar in the upper-left HUD and taps with a 5-second cooldown.\n\nThe circles are draggable and remember their positions. Tap a circle once to test its underlying game button. Keep Chrome and the game visible while it runs. Screen recognition is approximate and must be checked in your game before leaving it unattended."
+            textSize = 14f
+            setPadding(0, 20, 0, 12)
         })
         setContentView(ScrollView(this).apply { addView(root) })
-    }
-
-    private var exportData = "[]"
-
-    @Deprecated("Compatibility")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data?.data == null) return
-        if (requestCode == 7401) {
-            contentResolver.openOutputStream(data.data!!)?.bufferedWriter()?.use { it.write(exportData) }
-            status.text = "Route library exported."
-        } else if (requestCode == 7402) {
-            val imported = contentResolver.openInputStream(data.data!!)?.bufferedReader()?.use { it.readText() } ?: return
-            try {
-                val array = org.json.JSONArray(imported)
-                getSharedPreferences("route_library", MODE_PRIVATE).edit().putString("routes", array.toString()).apply()
-                status.text = "Imported ${array.length()} routes."
-            } catch (_: Exception) {
-                status.text = "Import failed: file is not a valid route library."
-            }
-        }
     }
 }
