@@ -17,12 +17,12 @@ class MainActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
         root.addView(TextView(this).apply {
-            text = "TORCH ROUTE FARMER"
+            text = "RAGNAROK CHROME FARMER"
             textSize = 26f
             gravity = Gravity.CENTER
         })
         root.addView(TextView(this).apply {
-            text = "Record map routes with the floating directional controls. Each step stores its direction, duration and a visual screen snapshot. Tag elite enemies to save visual examples."
+            text = "For your Ragnarok browser server: open the game in Chrome fullscreen, enable Accessibility, then open the floating controls and press START RO FARM. It taps the crossed-swords attack control, checks the minimap for movement, taps the F3 Fly Wing after five seconds without visible minimap change, and uses the red potion when the HP bar appears low."
             textSize = 14f
             setPadding(0, 12, 0, 16)
         })
@@ -38,10 +38,10 @@ class MainActivity : Activity() {
             }
         })
         root.addView(Button(this).apply {
-            text = "START RANDOM ROUTE FARMING"
+            text = "OPEN FARM CONTROLS"
             setOnClickListener {
                 sendBroadcast(Intent(BotAccessibilityService.ACTION_RANDOM_PLAY).setPackage(packageName))
-                status.text = "Random route playback requested."
+                status.text = "Floating controls requested. Switch to Chrome and press START RO FARM."
             }
         })
         root.addView(Button(this).apply {
@@ -77,13 +77,13 @@ class MainActivity : Activity() {
             }
         })
         status = TextView(this).apply {
-            text = "Ready. Enable accessibility, open the floating controls over Torchlight, press RECORD MAP, then guide the character using the bot's directional buttons. Press TAG ELITE when an elite or boss is visible, then SAVE MAP at the end."
+            text = "Ready. Enable Accessibility, open Chrome fullscreen with the Ragnarok game, open floating controls, then press START RO FARM. Keep the game visible and supervise it."
             textSize = 14f
             setPadding(0, 16, 0, 8)
         }
         root.addView(status)
         root.addView(TextView(this).apply {
-            text = "This build records timed movement commands and screen snapshots, and stores screenshots you manually tag as elite examples. Replay is still a fixed route: automatic elite recognition, boss targeting, obstacle correction, town teleport and portal/map selection are not implemented yet. Keep the game visible and supervise playback."
+            text = "This is an experimental screen-coordinate bot calibrated to the supplied screenshot. Attack, potion and F3 coordinates may need adjustment if the browser layout or zoom changes. Minimap difference is only a rough stuck detector; it does not identify monsters or guarantee safe movement. Keep the game visible and supervise it."
             textSize = 13f
             setPadding(0, 12, 0, 12)
         })
