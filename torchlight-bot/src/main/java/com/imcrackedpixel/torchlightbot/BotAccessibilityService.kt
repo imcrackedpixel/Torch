@@ -48,6 +48,7 @@ class BotAccessibilityService : AccessibilityService() {
     private var routePreview: RoutePreviewView? = null
     private var overlay: LinearLayout? = null
     private var statusView: TextView? = null
+    private var farmToggle: Button? = null
     private lateinit var wm: WindowManager
     private var playIndex = 0
     private var playRoute = JSONArray()
@@ -99,57 +100,36 @@ class BotAccessibilityService : AccessibilityService() {
         if (overlay != null) return
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(10, 10, 10, 10)
-            setBackgroundColor(0xEE18212B.toInt())
+            setPadding(4, 4, 4, 4)
+            setBackgroundColor(0xCC18212B.toInt())
         }
-        statusView = TextView(this).apply {
-            text = "TORCH MAP FARMER · READY"
-            setTextColor(0xFFFFFFFF.toInt()); textSize = 12f
+        val toggle = Button(this).apply {
+            text = if (farming) "OFF" else "ON"
+            textSize = 12f
+            setPadding(8, 4, 8, 4)
+            minWidth = 0
+            minHeight = 0
+            setOnClickListener {
+                if (farming) {
+                    stopBot()
+                    text = "ON"
+                } else {
+                    startRagnarokFarm()
+                    text = "OFF"
+                }
+            }
         }
-        panel.addView(statusView)
-        routePreview = RoutePreviewView(this).also { panel.addView(it, LinearLayout.LayoutParams(220, 110)) }
-        val farmRow = LinearLayout(this)
-        farmRow.addView(makeButton("START RO FARM") { startRagnarokFarm() })
-        farmRow.addView(makeButton("STOP BOT") { stopBot() })
-        panel.addView(farmRow)
-        val top = LinearLayout(this)
-        top.addView(makeButton("RECORD MAP") { beginRecording() })
-        top.addView(makeButton("SAVE MAP") { saveRecording() })
-        panel.addView(top)
-        val second = LinearLayout(this)
-        second.addView(makeButton("PLAY MAP") { playLastRoute() })
-        second.addView(makeButton("RANDOM MAP") { playRandomRoute() })
-        panel.addView(second)
-        val eliteRow = LinearLayout(this)
-        eliteRow.addView(makeButton("ELITE SPOTTING: OFF") {
-            eliteMode = !eliteMode
-            it.text = if (eliteMode) "ELITE SPOTTING: ON" else "ELITE SPOTTING: OFF"
-            setStatus(if (eliteMode) "elite spotting on · tag an elite when visible" else "elite spotting off")
-        })
-        eliteRow.addView(makeButton("TAG ELITE") { captureEliteSample() })
-        panel.addView(eliteRow)
-        panel.addView(TextView(this).apply {
-            text = "Use these direction buttons to record. TAG ELITE saves a visual example."
-            setTextColor(0xFFCFD8E3.toInt()); textSize = 10f
-        })
-        val up = LinearLayout(this).apply { gravity = Gravity.CENTER }
-        up.addView(makeButton("↑") { manualMove("UP") })
-        panel.addView(up)
-        val middle = LinearLayout(this).apply { gravity = Gravity.CENTER }
-        middle.addView(makeButton("←") { manualMove("LEFT") })
-        middle.addView(makeButton("↓") { manualMove("DOWN") })
-        middle.addView(makeButton("→") { manualMove("RIGHT") })
-        panel.addView(middle)
-        val bottom = LinearLayout(this)
-        bottom.addView(makeButton("STOP") { stopBot() })
-        bottom.addView(makeButton("HIDE") { removeControls() })
-        panel.addView(bottom)
+        farmToggle = toggle
+        panel.addView(toggle, LinearLayout.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT
+        ))
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START; x = 8; y = 90 }
+        ).apply { gravity = Gravity.TOP or Gravity.END; x = 12; y = 100 }
         overlay = panel
         try { wm.addView(panel, params) } catch (_: Exception) { overlay = null }
     }
@@ -162,7 +142,10 @@ class BotAccessibilityService : AccessibilityService() {
         overlay = null
     }
 
-    private fun setStatus(s: String) { statusView?.text = "TORCH MAP FARMER · " + s }
+    private fun setStatus(s: String) {
+        statusView?.text = "TORCH MAP FARMER · " + s
+        farmToggle?.text = if (farming) "OFF" else "ON"
+    }
 
     private fun beginRecording() {
         stopBot()
@@ -294,7 +277,9 @@ class BotAccessibilityService : AccessibilityService() {
         val h = resources.displayMetrics.heightPixels.toFloat()
         val x = (w * nx).coerceIn(2f, w - 2f)
         val y = (h * ny).coerceIn(2f, h - 2f)
-        val p = Path().apply { moveTo(x, y) }
+        // A stationary press/release: lineTo at the same coordinate makes this a real tap,
+        // not a directional swipe that can move the character.
+        val p = Path().apply { moveTo(x, y); lineTo(x + 0.5f, y + 0.5f) }
         val stroke = GestureDescription.StrokeDescription(p, 0, duration)
         dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
     }
@@ -307,12 +292,13 @@ class BotAccessibilityService : AccessibilityService() {
         lastMinimap?.recycle()
         lastMinimap = null
         setStatus("Ragnarok hunt running · attack scan active")
+        farmToggle?.text = "OFF"
         farmTick()
     }
 
     private fun farmTick() {
         if (!farming) return
-        tapAt(0.833f, 0.818f)
+        tapAt(0.833f, 0.755f, 70L)
         if (Build.VERSION.SDK_INT >= 30) {
             takeScreenshot(Display.DEFAULT_DISPLAY, executor, object : TakeScreenshotCallback {
                 override fun onSuccess(screenshot: ScreenshotResult) {
@@ -414,6 +400,7 @@ class BotAccessibilityService : AccessibilityService() {
         lastMinimap?.recycle(); lastMinimap = null
         handler.removeCallbacksAndMessages(null)
         setStatus("stopped")
+        farmToggle?.text = "ON"
     }
 
     private fun loadRoutes(): JSONArray = try {
