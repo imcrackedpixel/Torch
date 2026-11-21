@@ -38,10 +38,10 @@ class MainActivity : Activity() {
             }
         })
         root.addView(Button(this).apply {
-            text = "OPEN FARM CONTROLS"
+            text = "2 · OPEN FLOATING CONTROLS"
             setOnClickListener {
-                sendBroadcast(Intent(BotAccessibilityService.ACTION_RANDOM_PLAY).setPackage(packageName))
-                status.text = "Floating controls requested. Switch to Chrome and press START RO FARM."
+                sendBroadcast(Intent(BotAccessibilityService.ACTION_SHOW).setPackage(packageName))
+                status.text = "Floating controls requested. Switch to Chrome and press ON."
             }
         })
         root.addView(Button(this).apply {
