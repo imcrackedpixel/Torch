@@ -474,7 +474,7 @@ class BotAccessibilityService : AccessibilityService() {
             if (r > 105 && r > g * 1.25f && r > b * 1.20f) redHp++
         }
         val hpRatio = redHp.toFloat() / total
-        if (hpRatio < 0.50f && now - lastPotionAt > 5000L) {
+        if (redHp >= 4 && hpRatio < 0.50f && now - lastPotionAt > 5000L) {
             tapAt(f6X, f6Y, 85L)
             lastPotionAt = now
             setStatus("HP estimate below 50% · F6 tapped")
