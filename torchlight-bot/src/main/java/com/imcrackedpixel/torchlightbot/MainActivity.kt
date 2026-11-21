@@ -50,7 +50,7 @@ class MainActivity : Activity() {
             }
         })
         root.addView(TextView(this).apply {
-            text = "How it behaves\n• ATK: taps the attack button about every 1.6 seconds.\n• F3: taps after 5 seconds without a red combat cue (10-second cooldown).\n• F6: checks for a low blue HP bar in the upper-left HUD and taps with a 5-second cooldown.\n\nThe circles are draggable and remember their positions. Tap a circle once to test its underlying game button. Keep Chrome and the game visible while it runs. Screen recognition is approximate and must be checked in your game before leaving it unattended."
+            text = "How it behaves\n• ATK: taps the attack button about every 1.6 seconds.\n• F3: taps after 5 seconds without a red combat cue (10-second cooldown).\n• F6: checks for a low blue HP bar in the upper-left HUD and taps with a 5-second cooldown.\n\nThe circles are draggable and remember their positions. Use + SKILL on the overlay to add up to eight extra S1–S8 tap buttons for future skills; drag each onto the matching game skill and tap it to test. Keep Chrome and the game visible while it runs. Screen recognition is approximate and must be checked in your game before leaving it unattended."
             textSize = 14f
             setPadding(0, 20, 0, 12)
         })
