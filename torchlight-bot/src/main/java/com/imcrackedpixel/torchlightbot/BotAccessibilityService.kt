@@ -52,9 +52,16 @@ class BotAccessibilityService : AccessibilityService() {
     private var farmToggle: Button? = null
     private var aimMarker: AimMarkerView? = null
     private var aimMarkerParams: WindowManager.LayoutParams? = null
+    private val actionMarkers = mutableListOf<Pair<AimMarkerView, WindowManager.LayoutParams>>()
     private val aimPrefs by lazy { getSharedPreferences("ragnarok_aim", MODE_PRIVATE) }
     private val attackX: Float get() = aimPrefs.getFloat("x", 0.833f).coerceIn(0.02f, 0.98f)
     private val attackY: Float get() = aimPrefs.getFloat("y", 0.755f).coerceIn(0.02f, 0.98f)
+    private val f3X: Float get() = aimPrefs.getFloat("f3x", 0.768f).coerceIn(0.02f, 0.98f)
+    private val f3Y: Float get() = aimPrefs.getFloat("f3y", 0.775f).coerceIn(0.02f, 0.98f)
+    private val f6X: Float get() = aimPrefs.getFloat("f6x", 0.326f).coerceIn(0.02f, 0.98f)
+    private val f6Y: Float get() = aimPrefs.getFloat("f6y", 0.045f).coerceIn(0.02f, 0.98f)
+    private var lastCombatAt = 0L
+    private var lastF3At = 0L
     private lateinit var wm: WindowManager
     private var playIndex = 0
     private var playRoute = JSONArray()
@@ -158,8 +165,16 @@ class BotAccessibilityService : AccessibilityService() {
 
     private fun showAimMarker() {
         if (aimMarker != null) return
+        addTapMarker("attack", attackX, attackY, "ATK", 0xFF00E5FF.toInt(), true)
+        addTapMarker("f3", f3X, f3Y, "F3", 0xFF69F0AE.toInt(), false)
+        addTapMarker("f6", f6X, f6Y, "F6", 0xFFFFB74D.toInt(), false)
+    }
+
+    private fun addTapMarker(
+        key: String, nx: Float, ny: Float, label: String, color: Int, primary: Boolean
+    ) {
         val size = (58f * resources.displayMetrics.density).toInt()
-        val marker = AimMarkerView(this)
+        val marker = AimMarkerView(this, label, color)
         val p = WindowManager.LayoutParams(
             size, size,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -167,18 +182,16 @@ class BotAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.LEFT
-            x = (resources.displayMetrics.widthPixels * attackX - size / 2f).toInt()
+            x = (resources.displayMetrics.widthPixels * nx - size / 2f).toInt()
                 .coerceIn(0, (resources.displayMetrics.widthPixels - size).coerceAtLeast(0))
-            y = (resources.displayMetrics.heightPixels * attackY - size / 2f).toInt()
+            y = (resources.displayMetrics.heightPixels * ny - size / 2f).toInt()
                 .coerceIn(0, (resources.displayMetrics.heightPixels - size).coerceAtLeast(0))
         }
         marker.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    marker.dragStartX = event.rawX
-                    marker.dragStartY = event.rawY
-                    marker.viewStartX = p.x
-                    marker.viewStartY = p.y
+                    marker.dragStartX = event.rawX; marker.dragStartY = event.rawY
+                    marker.viewStartX = p.x; marker.viewStartY = p.y
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -192,30 +205,32 @@ class BotAccessibilityService : AccessibilityService() {
                 MotionEvent.ACTION_UP -> {
                     val w = resources.displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
                     val h = resources.displayMetrics.heightPixels.toFloat().coerceAtLeast(1f)
-                    aimPrefs.edit()
-                        .putFloat("x", ((p.x + size / 2f) / w).coerceIn(0.02f, 0.98f))
-                        .putFloat("y", ((p.y + size / 2f) / h).coerceIn(0.02f, 0.98f))
-                        .apply()
-                    marker.invalidate()
-                    setStatus("attack target moved · tap centre of red attack button")
+                    val px = ((p.x + size / 2f) / w).coerceIn(0.02f, 0.98f)
+                    val py = ((p.y + size / 2f) / h).coerceIn(0.02f, 0.98f)
+                    val edit = aimPrefs.edit()
+                    if (key == "attack") edit.putFloat("x", px).putFloat("y", py)
+                    else edit.putFloat(key + "x", px).putFloat(key + "y", py)
+                    edit.apply()
+                    setStatus("$label target saved")
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> true
                 else -> true
             }
         }
-        aimMarker = marker
-        aimMarkerParams = p
-        try { wm.addView(marker, p) } catch (_: Exception) {
-            aimMarker = null
-            aimMarkerParams = null
-        }
+        try {
+            wm.addView(marker, p)
+            if (primary) { aimMarker = marker; aimMarkerParams = p }
+            else actionMarkers.add(marker to p)
+        } catch (_: Exception) { }
     }
 
     private fun removeControls() {
         aimMarker?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         aimMarker = null
         aimMarkerParams = null
+        actionMarkers.forEach { (view, _) -> try { wm.removeView(view) } catch (_: Exception) {} }
+        actionMarkers.clear()
         overlay?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         overlay = null
     }
@@ -366,6 +381,8 @@ class BotAccessibilityService : AccessibilityService() {
         stopBot()
         farming = true
         lastMapChangeAt = System.currentTimeMillis()
+        lastCombatAt = System.currentTimeMillis()
+        lastF3At = 0L
         lastPotionAt = 0L
         lastMinimap?.recycle()
         lastMinimap = null
@@ -401,72 +418,66 @@ class BotAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
         val w = frame.width
         val h = frame.height
-        val left = (w * 0.845f).toInt().coerceIn(0, w - 2)
-        val top = (h * 0.01f).toInt()
-        val right = (w * 0.995f).toInt()
-        val bottom = (h * 0.335f).toInt().coerceIn(top + 1, h)
-        val mw = (right - left).coerceAtLeast(1)
-        val mh = (bottom - top).coerceAtLeast(1)
-        val mini = Bitmap.createBitmap(frame, left, top, mw, mh)
-        val previous = lastMinimap
-        if (previous != null && previous.width == mini.width && previous.height == mini.height) {
-            var diff = 0L
-            var samples = 0
-            val sx = max(1, mw / 36)
-            val sy = max(1, mh / 24)
-            var y = 0
-            while (y < mh) {
-                var x = 0
-                while (x < mw) {
-                    val a = previous.getPixel(x, y)
-                    val b = mini.getPixel(x, y)
-                    val d = kotlin.math.abs(((a shr 16) and 255) - ((b shr 16) and 255)) +
-                        kotlin.math.abs(((a shr 8) and 255) - ((b shr 8) and 255)) +
-                        kotlin.math.abs((a and 255) - (b and 255))
-                    diff += d
-                    samples++
-                    x += sx
-                }
-                y += sy
-            }
-            val avg = if (samples == 0) 0 else diff / samples
-            if (avg > 24) lastMapChangeAt = now
-            if (now - lastMapChangeAt >= 5000L && !teleporting) {
-                teleporting = true
-                setStatus("no minimap movement · using Fly Wing (F3)")
-                tapAt(0.768f, 0.775f)
-                lastMapChangeAt = now
-                handler.postDelayed({
-                    teleporting = false
-                    lastMapChangeAt = System.currentTimeMillis()
-                    lastMinimap?.recycle()
-                    lastMinimap = null
-                    if (farming) setStatus("teleport attempt complete · hunting")
-                }, 3500L)
-            }
-            previous.recycle()
-        } else {
-            lastMapChangeAt = now
-        }
-        lastMinimap = mini
 
+        // Rough combat cue: red enemy health bars/effects in the central play area.
+        // UI edges are excluded to avoid counting the red attack/potion controls.
+        var redSamples = 0
+        val xStart = (w * 0.22f).toInt().coerceIn(0, w - 1)
+        val xEnd = (w * 0.78f).toInt().coerceIn(xStart + 1, w)
+        val yStart = (h * 0.16f).toInt().coerceIn(0, h - 1)
+        val yEnd = (h * 0.76f).toInt().coerceIn(yStart + 1, h)
+        val stepX = max(2, w / 100)
+        val stepY = max(2, h / 100)
+        var y = yStart
+        while (y < yEnd) {
+            var x = xStart
+            while (x < xEnd) {
+                val c = frame.getPixel(x, y)
+                val r = (c shr 16) and 255
+                val g = (c shr 8) and 255
+                val b = c and 255
+                if (r > 155 && r > g * 1.45f && r > b * 1.25f) redSamples++
+                x += stepX
+            }
+            y += stepY
+        }
+        val inCombat = redSamples >= 14
+        if (inCombat) {
+            lastCombatAt = now
+            setStatus("combat detected · attacking (red cue $redSamples)")
+        } else if (now - lastCombatAt >= 4500L && now - lastF3At >= 12000L && !teleporting) {
+            teleporting = true
+            lastF3At = now
+            setStatus("no combat detected · tapping F3")
+            tapAt(f3X, f3Y, 85L)
+            handler.postDelayed({
+                teleporting = false
+                if (farming) {
+                    lastCombatAt = System.currentTimeMillis()
+                    setStatus("F3 tapped · scanning for enemies")
+                }
+            }, 2200L)
+        }
+
+        // Estimate HP fill from the red HP bar in the upper-left HUD.
+        // Drag the F6 marker onto the game's actual F6 button before starting.
         val hpY = (h * 0.151f).toInt().coerceIn(0, h - 1)
         val hpL = (w * 0.082f).toInt().coerceIn(0, w - 1)
         val hpR = (w * 0.245f).toInt().coerceIn(hpL + 1, w)
-        var blue = 0
+        var redHp = 0
         val total = (hpR - hpL).coerceAtLeast(1)
         for (x in hpL until hpR) {
             val color = frame.getPixel(x, hpY)
             val r = (color shr 16) and 255
             val g = (color shr 8) and 255
             val b = color and 255
-            if (b > r + 25 && b > g - 10 && b > 100) blue++
+            if (r > 105 && r > g * 1.25f && r > b * 1.20f) redHp++
         }
-        val hpRatio = blue.toFloat() / total
-        if (hpRatio in 0.01f..0.40f && now - lastPotionAt > 5000L) {
-            tapAt(0.326f, 0.045f)
+        val hpRatio = redHp.toFloat() / total
+        if (hpRatio < 0.50f && now - lastPotionAt > 5000L) {
+            tapAt(f6X, f6Y, 85L)
             lastPotionAt = now
-            setStatus("low HP estimate · potion tapped")
+            setStatus("HP estimate below 50% · F6 tapped")
         }
     }
 
@@ -502,15 +513,23 @@ class BotAccessibilityService : AccessibilityService() {
     }
 
 
-    private inner class AimMarkerView(context: Context) : View(context) {
+    private inner class AimMarkerView(
+        context: Context, private val markerLabel: String, markerColor: Int
+    ) : View(context) {
         private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFF00E5FF.toInt()
+            color = markerColor
             style = Paint.Style.STROKE
             strokeWidth = 3.5f * resources.displayMetrics.density
         }
         private val centre = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFFFD54F.toInt()
             style = Paint.Style.FILL
+        }
+        private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = markerColor
+            textSize = 11f * resources.displayMetrics.density
+            textAlign = Paint.Align.CENTER
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
         var dragStartX = 0f
         var dragStartY = 0f
@@ -525,6 +544,7 @@ class BotAccessibilityService : AccessibilityService() {
             canvas.drawLine(cx - radius * 1.35f, cy, cx + radius * 1.35f, cy, ring)
             canvas.drawLine(cx, cy - radius * 1.35f, cx, cy + radius * 1.35f, ring)
             canvas.drawCircle(cx, cy, 3.5f * resources.displayMetrics.density, centre)
+            canvas.drawText(markerLabel, cx, cy + radius + labelPaint.textSize, labelPaint)
         }
     }
 
